@@ -1,0 +1,540 @@
+---
+title: "Neural Network Third List"
+subtitle: "RNA Optimization"
+author:
+  - name: "Micael Egídio Papa da Silva"
+    email: "micael12eps@gmail.com"
+date: last-modified
+date-format: "DD-MM-YYYY"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show/hide code"
+    code-copy: true
+    number-sections: true
+    toc: true
+    toc-depth: 2
+    title-block-banner: "#FF5733" 
+    self-contained: true
+  pdf:
+    include-in-header: 
+      text: |
+        \usepackage{xcolor}
+        \definecolor{titleblockcolor}{HTML}{27445C}
+        \makeatletter
+        \AtBeginDocument{
+          \hypersetup{
+            pdftitle={\@title},
+            pdfauthor={\authors}
+          }
+        }
+        \makeatother   
+
+execute:
+  warning: false
+editor: visual
+editor_options: 
+  chunk_output_type: console
+reference-location: margin
+---
+
+Consider the function :
+$$
+f(x_1, x_2)=x_1^4+ x_2^4 + x_1^2x_2 + x_1x_2^2 -20x_1^2 - 15x_2^2
+$$
+
+To answear the following items
+
+# Libraries {.unnumbered}
+
+
+```{python, warning=FALSE}
+#!pip install numpy scipy plotly
+import numpy as np
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+from scipy.optimize import fsolve
+
+```
+
+
+# Functions {.unnumbered}
+
+```{python}
+
+
+class Optimizer:
+    @staticmethod
+    def gradient_descent(f, grad_f, x0, lr, steps):
+        x = np.array(x0)
+        path = [x]
+        for _ in range(steps):
+            x = x - lr * grad_f(*x)
+            path.append(x)
+        min_value = f(x[0], x[1])
+        return np.array(path), x, min_value
+
+    @staticmethod
+    def gradient_descent_momentum(f, grad_f, x0, lr, steps, alpha=0.9):
+        x = x0
+        v = np.zeros_like(x)
+        path = [x]
+        for _ in range(steps):
+            grad = grad_f(x[0], x[1])  
+            v = alpha * v - lr * grad
+            x = x + v
+            path.append(x)
+        min_value = f(x[0], x[1])
+        return np.array(path), x, min_value
+
+    @staticmethod
+    def rmsprop(f, grad_f, x0, lr, steps, rho=0.9, delta=1e-6):
+        x = x0
+        s = np.zeros_like(x)
+        path = [x]
+        for _ in range(steps):
+            g = grad_f(x[0], x[1])
+            s = rho * s + (1 - rho) * g**2
+            x = x - lr * g / (np.sqrt(s) + delta)
+            path.append(x)
+        min_value = f(x[0], x[1])
+        return np.array(path), x, min_value
+
+    @staticmethod
+    def adam(f, grad_f, x0, lr, steps, rho1=0.9, rho2=0.999, epsilon=1e-8):
+        x = x0.astype(np.float64)
+        m = np.zeros_like(x)
+        v = np.zeros_like(x)
+        path = [x.copy()]
+        for t in range(1, steps + 1):
+            g = grad_f(*x)
+            m = rho1 * m + (1 - rho1) * g
+            v = rho2 * v + (1 - rho2) * (g ** 2)
+            m_hat = m / (1 - rho1 ** t)
+            v_hat = v / (1 - rho2 ** t)
+            x -= lr * m_hat / (np.sqrt(v_hat) + epsilon)
+            path.append(x.copy())
+        min_value = f(x[0], x[1])
+        return np.array(path), x, min_value
+
+def f(x1, x2):
+    return x1**4 + x2**4 + x1**2 * x2 + x1 * x2**2 - 20 * x1**2 - 15 * x2**2
+def grad_f(x1, x2):
+    df_dx1 = 4 * x1**3 + 2 * x1 * x2 + x2**2 - 40 * x1
+    df_dx2 = 4 * x2**3 + x1**2 + 2 * x1 * x2 - 30 * x2
+    return np.array([df_dx1, df_dx2])
+
+def generate_surface(f, x_range, y_range):
+    X, Y = np.meshgrid(x_range, y_range)
+    Z = f(X, Y)
+    return X, Y, Z
+
+```
+
+
+
+
+\vspace{.4cm}
+\noindent
+
+**a)** Show a graph with the contour lines of $f(x_1, x_2)$. How many critical points does the function appear to have? Tip for `R` users: use the function `geom_contour_filled()`.
+
+
+```{python}
+
+
+x1 = np.linspace(-5, 5, 100)
+x2 = np.linspace(-5, 5, 100)
+X1, X2 = np.meshgrid(x1, x2)
+
+Z = f(X1, X2)
+
+
+contour_trace = go.Contour(
+    x=x1, 
+    y=x2, 
+    z=Z,
+    contours=dict(showlabels=True),
+    colorscale='Viridis',
+    colorbar=dict(title='Loss'),
+    hovertemplate='x<sub>1</sub>: %{x}<br>x<sub>2</sub>: %{y}<br>loss: %{z}<extra></extra>'
+)
+
+                     
+
+layout = go.Layout(title='',
+                   xaxis=dict(title='x<sub>1</sub>'),
+                   yaxis=dict(title='x<sub>2</sub>'),
+                   height=600,  
+                   width=800)   
+
+fig = go.Figure(data=[contour_trace], layout=layout)
+
+fig.show()
+
+```
+
+
+In the plot, the critical points seem to be located approximately at:
+
+1. $(2, 2)$
+2. $(-2, 2)$
+3. $(2, -2)$
+4. $(-2, -2)$
+
+These regions are indicated by the distinct enclosed purple areas, each showing significant changes in function values compared to the surrounding regions, suggesting that these are indeed critical points of the function.
+
+
+There are three closed loops in the darker purple areas, indicating three local minima (since the contour values decrease towards the center of these loops).
+  
+We can see four areas where the contour lines appear to converge, indicating possible saddle points (where the gradient is zero but they are neither local maxima nor minima).
+
+Thus, the function appears to have a total of 8 critical points: 1 global minimial 3 local minima and 4 saddle points.
+
+
+
+\vspace{.4cm}
+\noindent
+
+
+**b)** Find (algebraically) the gradient of $f$ with respect to the vector $x=(x_1, x_2)$.
+
+
+The gradient of $f$ in function of the vector $x = (x_1, x_2)$ is calculated with the partial derivatives of $f$ in relation to $x_1$ and $x_2$:
+
+$$
+\nabla f(x_1, x_2) = \left[ \frac{\partial f}{\partial x_1}, \frac{\partial f}{\partial x_2} \right]
+$$
+
+For the function :
+
+$f(x_1, x_2) = x_1^4 + x_2^4 + x_1^2 x_2 + x_1 x_2^2 - 20x_1^2 - 15x_2^2$  
+
+the partial derivatives are :
+
+$$
+\frac{\partial f}{\partial x_1} = 4x_1^3 + 2x_1 x_2 + x_2^2 - 40x_1
+$$
+
+$$
+\frac{\partial f}{\partial x_2} = 4x_2^3 + x_1^2 + 2x_1 x_2 - 30x_2
+$$
+
+
+```{python}
+
+initial_guesses = [(0, 0), (2, 2), (-2, -2), (2, -2), (-2, 2)]
+
+def solve_df(x):
+    return grad_f(x[0], x[1])
+
+critical_points = [fsolve(solve_df, guess) for guess in initial_guesses]
+critical_points = np.array(critical_points)
+
+x1 = np.linspace(-5, 5, 500)
+x2 = np.linspace(-5, 5, 500)
+X1, X2 = np.meshgrid(x1, x2)
+Z = f(X1, X2)
+
+Z_min_index = np.unravel_index(np.argmin(Z), Z.shape)
+global_min_x1 = X1[Z_min_index]
+global_min_x2 = X2[Z_min_index]
+global_min_value = Z[Z_min_index]
+
+
+
+contour_trace = go.Contour(
+    x=x1, 
+    y=x2, 
+    z=Z,
+    contours=dict(showlabels=True),
+    colorscale='Viridis',
+    colorbar=dict(title='Loss'),
+    hovertemplate='x<sub>1</sub>: %{x}<br>x<sub>2</sub>: %{y}<br>loss: %{z}<extra></extra>'
+)
+
+critical_points_trace = go.Scatter(
+    x=critical_points[:, 0],
+    y=critical_points[:, 1],
+    mode='markers',
+    marker=dict(color='red', size=10),
+    name='Critical Points'
+)
+
+global_min_trace = go.Scatter(
+    x=[global_min_x1],
+    y=[global_min_x2],
+    mode='markers',
+    marker=dict(color='yellow', size=10),
+    name='Global Minimum'
+)
+
+layout = go.Layout(
+    title='',
+    xaxis=dict(title='x<sub>1</sub>'),
+    yaxis=dict(title='x<sub>2</sub>'),
+    height=600,
+    width=800,
+        legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1
+    )
+)
+
+fig = go.Figure(layout=layout)
+fig.add_trace(contour_trace) 
+fig.add_trace(critical_points_trace)  
+fig.add_trace(global_min_trace)  
+fig.show()
+
+```
+
+The plot shows the contour lines of the function $f(x_1, x_2) = x_1^4 + x_2^4 + x_1^2 x_2 + x1 x_2^2 - 20 x_1^2 - 15 x_2^2$ along with the critical points highlighted in red, we can conclude the following:
+
+- The contour lines around these critical points suggest their nature:
+  
+     - The points at $(-2, 0)$, $(2, 0)$, $(0, 2)$, and $(0, -2)$ are likely to be saddle points, as they are located where the contour lines converge and cross each other.
+  
+     - The point at $(0, 0)$ appears to be a local maximum or minimum since it is surrounded by contour lines forming closed loops.
+
+- The visual observation of critical points aligns well with the results obtained from solving the gradient equations using `fsolve`. These critical points represent locations where the partial derivatives of the function are zero.
+
+- The function exhibits complex behavior with multiple critical points, including saddle points and a local extremum (likely a maximum or minimum) at the origin.
+
+
+\vspace{.4cm}
+\noindent
+
+
+
+**c)** Create a computational function that implements the gradient method to minimize the function under study. Allow the user to define the learning rate, the number of steps, and the starting point.
+
+```{python}
+
+def gradient_descent(f, grad_f, x0, lr, steps):
+    x = np.array(x0)
+    path = [x]
+    for _ in range(steps):
+        x = x - lr * grad_f(*x)
+        path.append(x)
+    min_value = f(x[0], x[1])
+    return np.array(path), x, min_value
+
+
+```
+
+\vspace{.4cm}
+\noindent
+
+**d)** Use the function created in item c) to find the value obtained by the gradient method starting from the initial point $(x_1^{(0)}, x_2^{(0)})=(0,5)$. Use a learning rate of 0.01 and perform 100 steps.
+
+```{python}
+
+path_gd, x_min_gd, min_value_gd = Optimizer.gradient_descent(f, grad_f, (0, 5), lr=0.01, steps=100)
+print("Gradient Descent - Minimum found into:", x_min_gd)
+print(f"Gradient Descent - Best loss :{min_value_gd:.2f}")
+```
+
+\vspace{.4cm}
+\noindent
+
+
+**e)** Repeat item d), now with the following learning rates: 1, 0.1, 0.01, 0.001, 0.0001. Which of these options seems most appropriate in this case? Justify your answer.
+
+```{python}
+#| warning: false
+
+learning_rates = [1, 0.1, 0.01, 0.001, 0.0001]
+for lr in learning_rates:
+    path_gd_rates, x_min_gd, min_value_gd = Optimizer.gradient_descent(f, grad_f, (0, 5), lr=lr, steps=100)
+    print(f"Learning rate: {lr}, Minimum value found: {min_value_gd:.2f}")
+
+```
+
+
+Here are some observations based on the results:
+
+- For a learning rate of 1, the optimization appears to diverge, leading to extremely large values.
+- For a learning rate of 0.1, the optimization also diverges.
+- For smaller learning rates (0.01, 0.001, 0.0001), the optimization seems to converge to certain values.
+
+Given these observations, it seems that the learning rate of 0.01 performs relatively well, as it converges to a minimum value without encountering overflow or invalid value issues.
+
+
+\vspace{.4cm}
+\noindent
+
+
+**f)** Set the random number generator seed to 123 (if using `R`, simply run `set.seed(123)`). Repeat item d) again, now starting from 20 randomly (uniformly) chosen points in the square $-5 < x_1, x_2 < 5$. Redraw the graph from item a) and add a line representing the path taken by each of the 20 optimizations. What percentage of times did the algorithm find the global minimum of the function (disregarding any minor deviation)?
+
+```{python}
+
+np.random.seed(123)
+
+num_starting_points = 20
+starting_points = np.random.uniform(-5, 5, size=(num_starting_points, 2))
+
+
+all_paths = []
+for point in starting_points:
+    path_gd_points, x_min_gd, min_value_gd = Optimizer.gradient_descent(f, grad_f, point, lr=0.01, steps=100)
+    all_paths.append(path_gd_points)
+
+x1 = np.linspace(-5, 5, 100)
+x2 = np.linspace(-5, 5, 100)
+X1, X2 = np.meshgrid(x1, x2)
+Z = f(X1, X2)
+
+contour_trace = go.Contour(
+    x=x1, 
+    y=x2, 
+    z=Z,
+    contours=dict(showlabels=True),
+    colorscale='Viridis',
+    colorbar=dict(title='Loss'),
+    hovertemplate='x<sub>1</sub>: %{x}<br>x<sub>2</sub>: %{y}<br>loss: %{z}<extra></extra>'
+)
+            
+
+starting_points_trace = go.Scatter(x=starting_points[:, 0],
+                                   y=starting_points[:, 1],
+                                   mode='markers',
+                                   marker=dict(color='red', size=8),
+                                   name='Starting Points')
+
+fig = make_subplots(rows=1, cols=1)
+
+fig.add_trace(contour_trace)
+fig.add_trace(starting_points_trace)
+
+for path in all_paths:
+    fig.add_trace(go.Scatter(x=path[:, 0], y=path[:, 1], mode='lines', line=dict(color='blue')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=[path[-1, 0]], y=[path[-1, 1]], mode='markers', marker=dict(color='green', size=8), name='End Point'), row=1, col=1)
+
+fig.update_layout(title='Optimization Trajectories',
+    xaxis=dict(title='x<sub>1</sub>'),
+    yaxis=dict(title='x<sub>2</sub>'),
+                  showlegend=False)
+
+fig.show()
+
+```
+
+We can see that 7 out of 20 converged to the global minimum (bottom left), therefore , 35% of the randomized starting points.
+
+\vspace{.4cm}
+\noindent
+
+**g)** Repeat item d), replacing the gradient method with the gradient method with momentum (see Section 8.3.2 of the book *Deep Learning*). Use a learning rate $\epsilon=0.01$, momentum parameter $\alpha = 0.9$, and initial velocity $v=0$.
+
+```{python}
+
+path_momentum, x_min_momentum, min_value_momentum = Optimizer.gradient_descent_momentum(f, grad_f, np.array([0, 5]), lr=0.01, steps=100)
+
+print(f"Gradient Descent with Momentum - Minimum found into: {x_min_momentum}")
+print(f"Gradient Descent with Momentum - Best loss :{min_value_momentum:.2f}")
+
+
+```
+
+\vspace{.4cm}
+\noindent
+
+**h)** Repeat item d), replacing the gradient method with the RMSProp method (see Section 8.5.2 of the book *Deep Learning*). Use a learning rate $\epsilon=0.001$, decay rate $\rho = 0.9$, and constant $\delta=10^{-6}$.
+
+```{python}
+path_rmsprop, x_min_rmsprop, min_value_rmsprop = Optimizer.rmsprop(f, grad_f, np.array([0, 5]), lr=0.01, steps=100)
+
+print(f"RMSProp - Minimum found into: {x_min_rmsprop}")
+print(f"RMSProp - Best loss :{min_value_rmsprop:.2f}")
+
+
+```
+
+\vspace{.4cm}
+\noindent
+
+
+**i)** Repeat item d), replacing the gradient method with the ADAM method (see Section 8.5.3 of the book *Deep Learning*). Use a learning rate $\epsilon=0.001$ and decay rates $\rho_1 = 0.9$ and $\rho_2 = 0.999$.
+
+```{python}
+
+path_adam, x_min_adam, min_value_adam = Optimizer.adam(f, grad_f, np.array([0, 5]), lr=0.01, steps=100)
+print(f"Adam - Minimum found into: {x_min_adam}")
+print(f"Adam - Best loss :{min_value_adam:.2f}")
+
+```
+
+\vspace{.4cm}
+\noindent
+
+**j)** Present graphically , in a single figure , the paths made by the optimizations in the items d), g), h) and i).
+
+
+To see a exclusive algorithm trajectory , just click twice in the legend.
+
+To vanish a specific path , click once .
+
+```{python}
+x_range = np.linspace(-5, 5, 400)
+y_range = np.linspace(-5, 5, 400)
+
+X, Y, Z = generate_surface(f, x_range, y_range)
+
+contour_trace = go.Contour(x=x_range, y=y_range, z=Z,
+                           contours=dict(showlabels=True),
+                           colorscale='Viridis',
+                           colorbar=dict(title='Loss', x=-0.2),
+                           name='Function Contour')
+
+path_gd_trace = go.Scatter(x=path_gd[:, 0], y=path_gd[:, 1],
+                           mode='lines+markers', marker=dict(size=4),
+                           line=dict(width=2),
+                           name='Gradient Descent',
+                           marker_color='blue')
+
+path_momentum_trace = go.Scatter(x=path_momentum[:, 0], y=path_momentum[:, 1],
+                                 mode='lines+markers', marker=dict(size=4),
+                                 line=dict(width=2),
+                                 name='Momentum',
+                                 marker_color='red')
+
+path_rmsprop_trace = go.Scatter(x=path_rmsprop[:, 0], y=path_rmsprop[:, 1],
+                                mode='lines+markers', marker=dict(size=4),
+                                line=dict(width=2),
+                                name='RMSProp',
+                                marker_color='green')
+
+path_adam_trace = go.Scatter(x=path_adam[:, 0], y=path_adam[:, 1],
+                             mode='lines+markers', marker=dict(size=4),
+                             line=dict(width=2),
+                             name='Adam',
+                             marker_color='purple')
+
+start_trace = go.Scatter(x=[path_gd[0, 0], path_momentum[0, 0], path_rmsprop[0, 0], path_adam[0, 0]],
+                         y=[path_gd[0, 1], path_momentum[0, 1], path_rmsprop[0, 1], path_adam[0, 1]],
+                         mode='markers', marker=dict(color='cyan', size=10, line=dict(color='black', width=2)),
+                         name='Start Point')
+
+end_trace = go.Scatter(x=[path_gd[-1, 0], path_momentum[-1, 0], path_rmsprop[-1, 0], path_adam[-1, 0]],
+                       y=[path_gd[-1, 1], path_momentum[-1, 1], path_rmsprop[-1, 1], path_adam[-1, 1]],
+                       mode='markers', marker=dict(color='green', size=10, line=dict(color='black', width=2)),
+                       name='End Points')
+
+layout = go.Layout(title='Optimization Paths on Contour Plot',
+                   xaxis_title='$x_1$',
+                   yaxis_title='$x_2$',
+                   legend=dict(title='Algorithms', x=1.05, y=1),
+                   width=800, height=600)
+
+fig = go.Figure(data=[contour_trace, path_gd_trace, path_momentum_trace, path_rmsprop_trace, path_adam_trace, start_trace, end_trace],
+                layout=layout)
+
+fig.show()
+
+
+```
+

@@ -1,0 +1,1158 @@
+---
+title: "Neural Network Second List"
+subtitle: "Dropout and Keras"
+author:
+  - name: "Micael Egídio Papa da Silva"
+    email: "micael12eps@gmail.com"
+date: last-modified
+date-format: "DD-MM-YYYY"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show/hide code"
+    code-copy: true
+    number-sections: true
+    toc: true
+    toc-depth: 2
+    title-block-banner: "#FF5733" 
+    self-contained: true
+  pdf:
+    include-in-header: 
+      text: |
+        \usepackage{xcolor}
+        \definecolor{titleblockcolor}{HTML}{27445C}
+        \makeatletter
+        \AtBeginDocument{
+          \hypersetup{
+            pdftitle={\@title},
+            pdfauthor={\authors}
+          }
+        }
+        \makeatother   
+
+execute:
+  warning: false
+editor: visual
+editor_options: 
+  chunk_output_type: console
+reference-location: margin
+---
+
+
+
+In this list, we will use the computational package *Keras* (or another of your preference -- *PyTorch*, *TensorFlow*, *Theano*, *H2O*, *Caffe*) to fit deep neural networks. Consider the data and models described in List 1 to answer the following questions.
+
+
+# Libraries {.unnumbered}
+
+
+```{python, warning=FALSE}
+
+import numpy as np
+import pandas as pd
+
+import scipy.stats as st
+import statsmodels.formula.api as smf
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly
+import plotly.offline
+import plotly.graph_objects as go
+import plotly.express as px
+
+
+import time
+import warnings
+
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.neural_network import MLPRegressor
+from skopt import gp_minimize
+from skopt.space import Real, Integer
+from skopt.utils import use_named_args
+
+import tensorflow as tf
+import keras
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, PReLU, Input
+from keras.optimizers import Adam, RMSprop
+from keras.callbacks import EarlyStopping, ModelCheckpoint, LearningRateScheduler
+from sklearn.preprocessing import StandardScaler
+from keras.optimizers import SGD
+
+
+```
+
+
+## Functions {.unnumbered}
+```{python}
+
+
+import numpy as np
+
+import numpy as np
+import pandas as pd
+import time
+
+import numpy as np
+import pandas as pd
+import time
+
+class DropoutNetwork:
+    def __init__(self):
+        self.W_1 = None
+        self.W_2 = None
+        self.b_1 = None
+        self.b_2 = None
+
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+    def loss(self, y_hat, y):
+        return np.mean((y_hat - y) ** 2)
+
+    def derivative_loss(self, y_hat, y):
+        return 2 * (y_hat - y) / y.shape[0]
+
+    def set_masks(self, X, dropout_prob):
+        self.mask_input = np.random.rand(*X.shape) < dropout_prob
+        self.mask_hidden = np.random.rand(2) < dropout_prob
+
+    def forward_pass_dropout(self, X, theta, dropout_prob):
+        self.set_masks(X, dropout_prob)
+        
+        self.W_1 = theta[:4].reshape(2, 2)
+        self.W_2 = theta[4:6].reshape(2, 1)
+        self.b_1 = np.tile(theta[6:8].reshape(1, 2), (X.shape[0], 1))
+        self.b_2 = theta[8].reshape(1, 1)
+
+        X_dropped = X * self.mask_input
+        A_1 = X_dropped @ self.W_1 + self.b_1
+        H_1 = self.sigmoid(A_1)
+        H_1_dropped = H_1 * self.mask_hidden
+        y_hat = H_1_dropped @ self.W_2 + self.b_2
+
+        return y_hat
+
+    def forward_pass_weight_scaling(self, X, theta, dropout_prob):
+        self.W_1 = theta[:4].reshape(2, 2)
+        self.W_2 = theta[4:6].reshape(2, 1)
+        self.b_1 = np.tile(theta[6:8].reshape(1, 2), (X.shape[0], 1))
+        self.b_2 = theta[8].reshape(1, 1)
+
+        scaled_W_1 = (dropout_prob) * self.W_1
+        scaled_W_2 = (dropout_prob) * self.W_2
+
+        A_1 = X @ scaled_W_1 + self.b_1
+        H_1 = self.sigmoid(A_1)
+        y_hat = H_1 @ scaled_W_2 + self.b_2
+
+        return y_hat
+
+    def backpropagation_dropout(self, y_hat, y, X, dropout_prob):
+        H_1 = self.sigmoid(X @ self.W_1 + self.b_1)
+        dA_2 = self.derivative_loss(y_hat, y)
+
+        dW_2 = H_1.T @ dA_2
+        db_2 = np.sum(dA_2, axis=0, keepdims=True)
+
+        dH_1 = dA_2 @ self.W_2.T
+        dH_1 = dH_1 * self.mask_hidden
+
+        dA_1 = dH_1 * H_1 * (1 - H_1)
+        dW_1 = X.T @ dA_1
+        db_1 = np.sum(dA_1, axis=0, keepdims=True)
+
+        gradients = np.hstack((dW_1.ravel(), dW_2.ravel(), db_1.ravel(), db_2.ravel()))
+        return gradients
+
+    def loss_calculation(self, y_hat, y):
+        return self.loss(y_hat, y)
+
+    def train(self, x_train, y_train, learning_rate, epochs, dropout_prob):
+        lowest_cost = float('inf')
+        best_weights = None
+        theta = np.zeros(9, dtype=float)
+
+        for epoch in range(epochs):
+            y_hat = self.forward_pass_dropout(x_train, theta, dropout_prob)
+            current_cost = self.loss_calculation(y_hat, y_train)
+
+            if current_cost < lowest_cost:
+                lowest_cost = current_cost
+                best_weights = theta.copy()
+
+            # Backpropagation with dropout
+            gradients = self.backpropagation_dropout(y_hat, y_train, x_train, dropout_prob)
+
+            # Gradient descent update
+            theta -= learning_rate * gradients
+
+            if (epoch + 1) % 100 == 0:
+                print(f'Epoch {epoch + 1}/{epochs}, Loss: {current_cost}')
+
+        print(f'Lowest observed cost: {lowest_cost}')
+        return best_weights
+
+
+def predictions(x_test, batch_size, nn_model, sub_networks=None, dropout_prob=None, theta=None, method='dropout'):
+    point_estimates = []
+    start_time = time.time()
+
+    if method == 'drop_first_obs':
+        x_test_first_observation = x_test[0]
+
+        predictions = [nn_model.forward_pass_dropout(x_test_first_observation, theta, dropout_prob) for theta in sub_networks]
+
+        mean_prediction = np.mean(predictions)
+        std_deviation = np.std(predictions)
+
+        confidence_level = 0.95
+        z_score = 1.96
+        margin_of_error = z_score * (std_deviation / np.sqrt(len(predictions)))
+        lower_bound = mean_prediction - margin_of_error
+        upper_bound = mean_prediction + margin_of_error
+
+        print(f"Point Estimate for y_1: {mean_prediction:.3f}")
+        print(f"Confidence Interval for y_1: ({lower_bound:.3f}, {upper_bound:.3f})")
+        print(f"Margin of Error: {margin_of_error:.3f}")
+
+        return None
+
+    else:
+        for i in range(0, len(x_test), batch_size):
+            x_test_batch = x_test[i:i + batch_size]
+
+            batch_predictions = []
+            predictions = []  
+
+            for x_test_observation in x_test_batch:
+                if method == 'MCMA':
+                    predictions = [nn_model.forward_pass_dropout(x_test_observation, theta, dropout_prob) for theta in sub_networks]
+                elif method == 'weight_scaling':
+                    predictions = [nn_model.forward_pass_weight_scaling(x_test_observation, theta, dropout_prob)]
+                batch_predictions.append(predictions)
+
+            for j, x_test_observation in enumerate(x_test_batch):
+                predictions = batch_predictions[j]
+                mean_prediction = np.mean(predictions)
+                point_estimates.append(mean_prediction)
+
+        df = pd.DataFrame({'Predicted': point_estimates})
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Execution time for method '{method}': {execution_time:.3f} seconds")
+
+        return df
+
+
+
+
+
+
+
+
+## Functions for the second question
+
+class CustomNN:
+    def __init__(self, x_train, y_train, x_val, y_val, best_hyperparameters):
+        self.x_train = x_train
+        self.y_train = y_train
+        self.x_val = x_val
+        self.y_val = y_val
+        self.best_hyperparameters = best_hyperparameters
+
+    def create_neural_network(self):
+        num_layers, num_neurons, dropout_rate, = self.best_hyperparameters
+        model = Sequential()
+        model.add(Dense(num_neurons, input_shape=(2,)))
+        model.add(PReLU())
+        model.add(Dropout(dropout_rate))
+        for _ in range(num_layers - 1):
+            model.add(Dense(num_neurons))
+            model.add(PReLU())
+            model.add(Dropout(dropout_rate))
+        model.add(Dense(1))
+        return model
+
+    def train_model(self):
+        num_layers, num_neurons, dropout_rate, = self.best_hyperparameters
+        model = self.create_neural_network()
+
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        model_checkpoint = ModelCheckpoint("best_model.keras", monitor='val_loss', save_best_only=True)
+
+        initial_learning_rate = 0.001
+        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate, decay_steps=10000, decay_rate=0.96, staircase=True
+        )
+        optimizer = Adam(learning_rate=lr_schedule)
+        model.compile(optimizer=optimizer, loss='mean_squared_error')
+
+        history = model.fit(self.x_train, self.y_train, validation_data=(self.x_val, self.y_val),
+                            epochs=100, batch_size=30, callbacks=[early_stopping, model_checkpoint], verbose=0)
+
+
+class MAE_NN(CustomNN):
+    def train_model_with_predictions(self):
+
+        model = tf.keras.models.load_model("/home/micaelpapa/Desktop/Neural-Nets/best_model.keras")
+
+        y_train_predicted = model.predict(self.x_train)
+        y_val_predicted = model.predict(self.x_val)
+
+        new_model = self.create_neural_network()
+
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        model_checkpoint = ModelCheckpoint("best_parsimonious_model.keras", monitor='val_loss', save_best_only=True)
+
+        initial_learning_rate = 0.001
+        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate, decay_steps=10000, decay_rate=0.96, staircase=True
+        )
+        optimizer = Adam(learning_rate=lr_schedule)
+        new_model.compile(optimizer=optimizer, loss='mean_squared_error')
+
+        history = new_model.fit(self.x_train, y_train_predicted, validation_data=(self.x_val, y_val_predicted),
+                                epochs=100, batch_size=30, callbacks=[early_stopping, model_checkpoint], verbose=1)
+
+
+
+
+def get_model_info(model):
+    num_layers = 0
+    dense_layers = []
+    dropout_layers = []
+
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.Dense):
+            num_layers += 1
+            dense_layers.append(layer.units)
+        elif isinstance(layer, tf.keras.layers.Dropout):
+            dropout_layers.append(layer.rate)
+
+    total_neurons = sum(dense_layers) - 1
+    dropout_rates = list(set(dropout_layers))
+
+    info_str = (
+        f"Number of Dense layers: {num_layers}\n"
+        f"Total Neurons: {total_neurons}\n"
+        f"Dropout Rates: {dropout_rates}\n"
+    )
+
+    for i, units in enumerate(dense_layers, start=1):
+        info_str += f"Dense Layer {i}: Neurons: {units}\n"
+
+    return info_str
+
+
+### Data Vis
+
+def create_parameter_table(theta):
+    """
+    Create a parameter table DataFrame from a given theta array.
+
+    Parameters:
+    - theta (numpy.ndarray): The parameter array containing weights and biases.
+
+    Returns:
+    - pd.DataFrame: DataFrame representing the parameter table (transposed).
+    """
+    theta_list = theta.tolist()
+    num_params = len(theta_list) - 3
+    num_biases = 3
+
+    param_column_names = [f'w_{i+1}' for i in range(num_params)]
+    bias_column_names = [f'b_{i+1}' for i in range(num_biases)]
+    column_names = param_column_names + bias_column_names
+
+    parameter_table = pd.DataFrame([theta_list], columns=column_names).T
+
+    parameter_table.columns = ['']
+
+    return parameter_table
+
+
+def plot_density_heatmap(residuals, title):
+    x1 = x_test[:, 0]
+    x2 = x_test[:, 1]
+
+    data = pd.DataFrame({
+        'x1': x1,
+        'x2': x2,
+        'residuals': residuals
+    })
+    
+    fig = px.density_heatmap(data, x='x1', y='x2', z='residuals', nbinsx=40, nbinsy=40, color_continuous_scale='RdBu_r', histfunc='avg')
+
+    fig.update_layout(coloraxis_colorbar=dict(
+        title="Magnitude of the Residual",
+        titleside="right",
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="x1",
+        yaxis_title="x2"
+    )
+
+    return fig    
+
+
+
+```
+
+
+```{python}
+#| echo: false
+
+data = pd.read_csv('/home/micaelpapa/Desktop/Neural-Nets/Neural-Nets.csv', dtype=np.float64, index_col=0).reset_index(drop=True)
+
+# Dividing the data into training, validation, and test sets.
+
+x_train = data.__array__()[:80000, :2]
+y_train = data.__array__()[:80000, 3].reshape(80000, 1)
+
+x_val = data.__array__()[80000:90000, :2]
+y_val = data.__array__()[80000:90000, 3].reshape(10000, 1)
+
+x_test = data.__array__()[-10000:, :2]
+y_test = data.__array__()[-10000:, 3].reshape(10000, 1)
+
+
+
+train_data = data.iloc[:80000, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+test_data = data.iloc[90000:, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+val_data = data.iloc[-10000:, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+
+```
+
+# Questions {.unnumbered}
+
+## **Question 1**{.unnumbered} 
+
+## **a)**{.unnumbered} 
+
+Modify your code from List 1 (or, if you prefer, the provided sample codes) to implement the dropout technique in the input layer and the intermediate layer. Use $p=0.6$, where $p$ represents the probability of including each neuron. **Attention:** in this item, there is no need to calculate the cost of the network on the validation set! At each new iteration of the optimization algorithm, the current neural network generates random point estimates for the training set observations. These estimates, in turn, are used to calculate the cost on the training set and update the network weights. Report the lowest observed cost during training and save the respective weights to answer the other items in Question 1.
+
+
+\vspace{.4cm}
+\noindent
+
+```{python}
+
+nn_drop = DropoutNetwork()
+
+dropout_prob = 0.6
+learning_rate = 0.1
+epochs = 100
+theta = np.zeros(9)
+
+best_weights = nn_drop.train(x_train, y_train, learning_rate, epochs ,dropout_prob)
+
+create_parameter_table(best_weights.copy())
+
+```
+
+As expected, applying dropout had a negative impact on the loss function, resulting in worse outcomes compared to the previously implemented network. This is due to the low representational capacity of the chosen architecture for this simple neural network.
+
+\vspace{.4cm}
+\noindent
+
+## **b)** {.unnumbered} 
+
+Considering the weights obtained in **a)**, for the first observation of the test set, generate 200 predictions ($\hat{y}_{1, 1}, \ldots, \hat{y}_{1, 200}$), one for each randomly sampled sub-network. Use the predictions to construct a point estimate and a confidence interval for $y_1$. See Figure 7.6 in the book *Deep Learning*. Note that with this procedure, it is not necessary to assume normality for the errors, as we did in List 1.
+
+
+\vspace{.4cm}
+\noindent
+
+Making a 95% confidence interval for the point estimate for the first observation : 
+
+```{python}
+
+batch_size = 30
+
+sub_networks = [np.random.normal(loc=best_weights, scale=0.1) for _ in range(200)]
+
+predictions(x_test, batch_size, nn_drop, sub_networks, dropout_prob, method='drop_first_obs')
+
+```
+
+
+\vspace{.4cm}
+\noindent
+
+## **c)**{.unnumbered} 
+Repeat item **b)** to generate point estimates for each observation in the test set.
+
+\vspace{.4cm}
+\noindent
+
+The Monte Carlo model averaging and the Weight scaling ( next question ) where implemented with the mini batch strategy during inference to optimize the process.
+
+```{python}
+
+MCMA = predictions(x_test, batch_size, nn_drop, sub_networks, dropout_prob, method='MCMA')  # monte carlo model averaging
+ # monte carlo model averaging
+
+```
+
+
+\vspace{.4cm}
+\noindent
+
+
+## **d)**{.unnumbered}
+Use the weight scaling inference rule (page 263 of the book *Deep Learning*) to generate new estimates for the observations in the test set. Which of the procedures (the one from item **c)** or the one used in this item) produced better results? Considering the computational time of each, which would you choose for this application?
+
+\noindent 
+
+**Observation:**
+Note that with the procedure executed in this question, we did not implement the early stopping technique. To use it, at each new iteration of the SGD algorithm, we can calculate the cost on the validation set using item **d)**, and then stop training when the cost on the validation set stops decreasing.
+
+\vspace{.4cm}
+\noindent
+
+
+```{python}
+
+weight_scaling = predictions(x_test, batch_size, nn_drop, dropout_prob=0.6, theta=best_weights, method='weight_scaling')
+ 
+```
+
+```{python}
+
+#| echo : false
+
+y_tests = pd.DataFrame(y_test.copy(), columns=['Real Value'])
+
+
+mse_weight_scaling = round(mean_squared_error(y_tests['Real Value'], weight_scaling['Predicted']),2)
+mse_MCMA = round(mean_squared_error(y_tests['Real Value'], MCMA),2)
+
+mse_results = pd.DataFrame({
+    'Method': ['Weight Scaling', 'MCMA'],
+    'MSE': [mse_weight_scaling, mse_MCMA],
+})
+
+plt.figure(figsize=(6, 2))
+plt.axis('off')  
+
+table = plt.table(cellText=mse_results.values,
+                  colLabels=mse_results.columns,
+                  cellLoc='center',
+                  loc='center')
+
+table.auto_set_font_size(False)
+table.set_fontsize(12)
+table.scale(1.4, 1.4)
+
+plt.show()
+```
+
+```{python}
+#| echo: false
+from IPython.display import display, Markdown
+
+display(Markdown(
+f"""
+The weight scaling method exhibits a much more faster performance albeit resulting in a higher Mean Squared Error (MSE). Since both MSE values show significant variability and don't substantially differ from each other in magnitude, neither provides a strong indication for superior predictive capability. However, due to its shorter runtime, the weight scaling approach emerges as the preferable choice for this task.
+
+"""
+))
+
+```
+
+
+\vspace{.4cm}
+\noindent
+
+## **Question 2**{.unnumbered}
+
+## **a)**{.unnumbered}
+
+Fit the specified neural network using Keras. Compare it with your implementation (List 1, item e) in terms of computational time and the cost obtained on the validation set. Use the same optimization algorithm (full gradient descent) and starting point.
+
+
+\vspace{.4cm}
+\noindent
+
+
+```{python}
+#| echo: false
+
+class SimpleNeuralNetwork:
+  
+    def __init__(self):
+        self.W_1 = None
+        self.W_2 = None
+        self.b_1 = None
+        self.b_2 = None
+
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+    def loss(self, y_hat, y):
+        return np.mean((y_hat - y) ** 2)
+
+    def derivative_loss(self, y_hat, y):
+        return 2 * (y_hat - y) / y.shape[0]        
+
+    def forward_pass(self, X, theta):
+        self.W_1 = theta[:4].reshape(2, 2)
+        self.W_2 = theta[4:6].reshape(2, 1)
+        self.b_1 = np.tile(theta[6:8].reshape(1, 2), (X.shape[0], 1))
+        self.b_2 = theta[8].reshape(1, 1)
+
+        A_1 = X @ self.W_1 + self.b_1
+        H_1 = self.sigmoid(A_1)
+        y_hat = H_1 @ self.W_2 + self.b_2
+
+        return y_hat
+
+    def backpropagation(self, y_hat, y, X):
+        H_1 = self.sigmoid(X @ self.W_1 + self.b_1)
+        dA_2 = self.derivative_loss(y_hat, y)
+        dW_2 = H_1.T @ dA_2
+        db_2 = np.sum(dA_2, axis=0, keepdims=True)
+
+        dH_1 = dA_2 @ self.W_2.T
+        dA_1 = dH_1 * H_1 * (1 - H_1)
+        dW_1 = X.T @ dA_1
+        db_1 = np.sum(dA_1, axis=0, keepdims=True)
+
+        gradients = np.hstack((dW_1.ravel(), dW_2.ravel(), db_1.ravel(), db_2.ravel()))
+        return gradients
+
+    def loss_calculation(self, y_hat, y):
+        return self.loss(y_hat, y)
+
+    def operate(self, X, theta, y=None, operation='forward', lambda_val=None):
+        if operation == 'forward':
+            return self.forward_pass(X, theta)
+        elif operation == 'backpropagation':
+            y_hat = self.forward_pass(X, theta)
+            return self.backpropagation(y_hat, y, X)
+        elif operation == 'loss':
+            y_hat = self.forward_pass(X, theta)
+            return self.loss_calculation(y_hat, y)        
+
+
+nn = SimpleNeuralNetwork()
+
+theta = np.zeros(9)
+learning_rate = 0.1
+epochs = 100
+min_loss = float("inf")
+best_theta = None
+
+train_list = []
+val_list = []
+parameter_tables = []
+
+start_time = time.time()
+
+for epoch in range(epochs):
+    parameter_tables.append(create_parameter_table(theta))
+
+    grad_train = nn.operate(x_train, theta, y_train, 'backpropagation')
+    theta -= learning_rate * grad_train
+
+    train_loss = nn.operate(x_train, theta, y_train, 'loss')
+    train_list.append(train_loss)
+
+    val_loss = nn.operate(x_val, theta, y_val, 'loss')
+    val_list.append(val_loss)
+
+    # Updating best parameters if current loss is lower:
+
+    best_epoch = np.argmin(train_list)
+    best_theta = np.copy(theta) if train_list[best_epoch] < min_loss else best_theta
+    min_loss = min(min_loss, train_list[best_epoch])
+
+end_time = time.time()
+execution_time_first = end_time - start_time
+
+
+
+epochs = np.arange(1, len(train_list) + 1)
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=epochs, y=train_list, mode='lines', name='Train', marker=dict(color='red')))
+fig.add_trace(go.Scatter(x=epochs, y=val_list, mode='lines', name='Validation', marker=dict(color='blue')))
+
+train_min_index = np.argmin(train_list)
+val_min_index = np.argmin(val_list)
+train_min_value = train_list[train_min_index]
+val_min_value = val_list[val_min_index]
+
+fig.add_trace(go.Scatter(x=[epochs[train_min_index]], y=[train_min_value], mode='markers', name=f'Min Train Cost: {train_min_value:.2f}', marker=dict(color='red', size=10)))
+fig.add_trace(go.Scatter(x=[epochs[val_min_index]], y=[val_min_value], mode='markers', name=f'Min Validation Cost: {val_min_value:.2f}', marker=dict(color='blue', size=10)))
+
+fig.update_layout(
+    title="Cost in training and validation set (First List)",
+    xaxis_title="Epochs",
+    yaxis_title="Cost",
+    font=dict(size=14),
+    xaxis=dict(tickvals=np.arange(0, len(train_list) + 1, step=5)),
+    yaxis=dict(tickfont=dict(size=12)),
+    yaxis_range=[140, 150],
+    xaxis_ticks="outside",
+    yaxis_ticks="outside",
+    xaxis_ticklen=5,
+    yaxis_ticklen=5,
+    xaxis_tickwidth=1,
+    yaxis_tickwidth=1,
+    xaxis_tickcolor='gray',
+    yaxis_tickcolor='gray',
+    xaxis_linewidth=1,
+    yaxis_linewidth=1,
+    xaxis_gridcolor='lightgray',
+    yaxis_gridcolor='lightgray',
+    showlegend=True
+)
+
+fig.show()
+
+
+
+```
+
+Keras implementation : 
+
+
+I've tried to create a personalized learning rate schedule to match the same results from before, because SGD (even with momentum set to zero and the mini-batch equal to the train size) tends to keep learning and finding better results than the Vanilla GD, however , even with the `lr_schedule` the first epoch had always miss-match results between the test and validation loss.
+
+```{python}
+
+
+start_time = time.time()
+
+## Implementing learning rate schedule to control the loss decay
+
+def lr_schedule(epoch, lr):
+    if epoch > 1 and epoch % 12 == 0:
+        lr = lr * 0.001 
+    elif epoch > 14:
+        lr = lr * tf.math.exp(-0.001)
+    return float(lr)
+
+model = Sequential([
+    Dense(2, activation='sigmoid', input_shape=(2,), kernel_initializer='zeros', bias_initializer='zeros'),
+    Dense(1)
+])
+
+optimizer = SGD(learning_rate=0.1, momentum=0.0)
+model.compile(optimizer=optimizer, loss='mean_squared_error')
+
+checkpoint_callback = ModelCheckpoint(filepath='best_weights.weights.h5', save_best_only=True, save_weights_only=True, verbose=0)
+lr_scheduler = LearningRateScheduler(lr_schedule)
+
+history = model.fit(x_train, y_train, validation_data=(x_val, y_val),
+                    epochs=100, batch_size=len(x_train), validation_batch_size=len(x_val), verbose=0,
+                    callbacks=[checkpoint_callback, lr_scheduler], shuffle=False)
+
+end_time = time.time()
+execution_time_keras = end_time - start_time
+
+```
+
+
+
+```{python}
+#| echo: false
+
+best_epoch = np.argmin(history.history['loss'])
+best_loss = np.min(history.history['loss'])
+best_val_loss = np.min(history.history['val_loss'])
+best_val_epoch = np.argmin(history.history['val_loss'])
+
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=np.arange(1, len(history.history['loss']) + 1), y=history.history['loss'], mode='lines', name='Train', marker=dict(color='red')))
+
+fig.add_trace(go.Scatter(x=np.arange(1, len(history.history['val_loss']) + 1), y=history.history['val_loss'], mode='lines', name='Validation', marker=dict(color='blue')))
+
+fig.add_trace(go.Scatter(x=[best_epoch + 1], y=[best_loss], mode='markers', name=f'Min Train Cost: {best_loss:.2f}', marker=dict(color='red', size=10)))
+
+fig.add_trace(go.Scatter(x=[best_val_epoch + 1], y=[best_val_loss], mode='markers', name=f'Min Validation Cost: {best_val_loss:.2f}', marker=dict(color='blue', size=10)))
+
+fig.update_layout(
+    title="Cost in training and validation set (Keras)",
+    xaxis_title="Epochs",
+    yaxis_title="Cost",
+    font=dict(size=14),
+    xaxis=dict(tickvals=np.arange(0, len(history.history['loss']) + 1, step=5)),
+    yaxis=dict(tickfont=dict(size=12)),
+    showlegend=True
+)
+
+fig.show()
+
+```
+
+```{python}
+#| echo: false
+
+print(f"Matrix implementation execution time : {execution_time_first:.3f} seconds")
+
+print(f"Keras execution time : {execution_time_keras:.3f} seconds")
+
+
+
+```
+
+The Keras is almost twice slower , therefore , for this specific neural net architecture , the matrix implementation is a better choice. 
+
+
+\vspace{.4cm}
+\noindent
+
+## **b)**{.unnumbered}
+
+Fit the most accurate neural network (measured by MSE calculated on the validation set) that you can achieve, with any architecture you want. Use all regularization techniques you desire (weight decay, Bagging, dropout, Early stopping). Report the accuracy obtained for this network on the validation set.
+
+
+\vspace{.4cm}
+\noindent
+
+A bayesian optimization was implemented to find the best architecture in a wide search space with a gaussian process, where the hyperparameters consists in : 
+
+
+- Number of dense layers [1,5]
+- Number of neurons [50 , 200 ]
+- Dropout rate varying from [0 , 0.5]
+
+Which will be the parameters of the objective function, handled by the Expected Improvement (EI) acquisition function designed to select the next point in the search space that maximizes the expected improvement over the current best observation during the gaussian process.
+
+The Early Stopping was implemented to avoid overfitting
+
+```{python}
+#| eval: false
+space = [
+    Integer(1, 5, name='num_layers'),       
+    Integer(50, 200, name='num_neurons'),    
+    Real(0.0, 0.5, name='dropout_rate')      
+]
+
+
+@use_named_args(space)
+def objective_function(num_layers, num_neurons, dropout_rate):
+    model = Sequential()
+    model.add(Dense(num_neurons, activation='relu', input_shape=(2,)))
+    model.add(Dropout(dropout_rate))
+    for _ in range(num_layers - 1):
+        model.add(Dense(num_neurons, activation='relu'))
+        model.add(Dropout(dropout_rate))
+    model.add(Dense(1))
+
+    optimizer = Adam()
+    model.compile(optimizer=optimizer, loss='mse')
+
+    history = model.fit(x_train, y_train, validation_data=(x_val, y_val),
+                        epochs=10, batch_size=30, verbose=0)
+
+    val_loss = history.history['val_loss'][-1]
+    return val_loss
+
+
+result = gp_minimize(objective_function, space, n_calls=20, random_state=42, acq_func='EI')
+
+
+best_hyperparameters = result.x
+best_num_layers, best_num_neurons, best_dropout_rate = best_hyperparameters
+
+
+CustomNN(x_train, y_train, x_val, y_val, best_hyperparameters).train_model()
+```
+
+```{python}
+#| echo: false
+
+model = tf.keras.models.load_model("/home/micaelpapa/Desktop/Neural-Nets/best_model.keras")
+
+print(f"Best Architecture :")
+
+print(get_model_info(model))
+
+loss = model.evaluate(x_val, y_val, verbose=0)
+
+print(f"Validation Loss:{loss:.3f}")
+
+```
+
+
+
+
+<!-- \newpage -->
+
+**Considering the network adjusted in item b), answer the following questions.**
+
+\vspace{.4cm}
+\noindent
+
+
+## **c)**{.unnumbered} 
+Repeat item h) from List 1 for this new network. Comment on the results.
+
+
+\vspace{.4cm}
+\noindent
+
+
+```{python}
+
+
+y_hats = model.predict(x_val, verbose = 0)
+
+fig = go.Figure(data=go.Scatter(
+    x=y_hats.flatten(),
+    y=y_val.flatten(),
+    mode='markers',
+    marker=dict(
+        color='blue'
+    )))
+
+fig.update_layout(
+    title='Observed Value vs. Expected Value ',
+    xaxis_title='y&#x0302;<sub>i</sub>',
+    yaxis_title='y<sub>i</sub>',
+    font=dict(size=14),
+    showlegend=False,
+    plot_bgcolor='rgba(240, 240, 240, 0.6)',
+    hovermode='closest',
+    margin=dict(l=50, r=50, t=50, b=50),
+)
+
+
+fig.show()
+
+```
+
+Given that the more complex network returned a loss of approximately 1.06, which is nearly one standard deviation, we can infer that this network performed significantly better compared to the previous low-capacity representation network.
+
+With this in mind, as shown in the above plot , we can see a distribution more aligned with the 45-degree line, indicating a more accurate match between the model's predictions and the actual values.
+
+However, it's important to note that even with a more complex network, there may still be some scatter in the points due to the presence of noise in the data. Therefore, while we anticipate an overall improvement in the plot's results with the more complex network, we may still observe some variability in the points around the 45-degree line.
+
+\vspace{.4cm}
+\noindent
+
+
+
+
+## **d)**{.unnumbered}
+ 
+Use the prediction function of Keras to predict the value of the response variable $\hat{y}=f(x_1=1, x_2=1; \theta)$, where $\theta$ is defined according to the adjusted network. (See item a) of List 1).
+
+\vspace{.4cm}
+\noindent
+
+
+```{python}
+
+X = np.array([1] * 2).reshape(1, 2)
+
+
+print(f"Prediction: {model.predict(X, verbose = 0).flatten()}")
+
+```
+
+
+
+\vspace{.4cm}
+\noindent
+
+
+## **e)**{.unnumbered}
+In this purely didactic example, we know the surface we are estimating. Present, side by side, Figure 1 from List 1 and the surface estimated by your neural network. To do this, simply replace the variable `mu` with the values predicted by the network. Comment on the results.  
+
+\vspace{.4cm}
+\noindent
+
+```{python}
+
+theta = np.zeros(9)
+
+
+residuals = np.array(y_test - nn.forward_pass(x_test, theta)).flatten()
+
+residuals_new = np.array(y_val - y_hats).flatten()
+
+plot_density_heatmap(residuals, "Surface biases behavior (Simple Architecture)").show()
+plot_density_heatmap(residuals_new, "Surface biases behavior (Complex Architecture)").show()
+
+```
+
+
+\vspace{.4cm}
+\noindent
+
+As expected , the more Complex Architecture presents an ideal range of residuals when compared with the previous network architecture from the first list.
+
+
+## **f)**{.unnumbered}
+
+Build a new network, now adjusted on the predicted values (instead of the observed values of $y$) for each observation in the training and validation sets. Use the most parsimonious architecture you can without substantially compromising the predictive power of the network (compared to the one obtained in item 2b). Mention a possible use for this new network.
+
+
+\vspace{.4cm}
+\noindent
+
+
+
+For this question we will apply a bayesian optimization to find the best parsimonious architcture within a simpler search space: 
+
+- Number of dense layers [1,3]
+- Number of neurons [10 , 50 ]
+- Dropout rate varying from [0 , 0.3]
+
+
+```{python}
+#| eval: false
+
+space = [
+    Integer(1, 3, name='num_layers'),       
+    Integer(10, 50, name='num_neurons'),    
+    Real(0.0, 0.5, name='dropout_rate')      
+]
+
+@use_named_args(space)
+
+def objective_function(num_layers, num_neurons, dropout_rate):
+
+    model = tf.keras.models.load_model("/home/micaelpapa/Desktop/Neural-Nets/best_model.keras")
+    y_train_predicted = model.predict(x_train)
+    y_val_predicted = model.predict(x_val)
+
+    new_model = Sequential()
+    new_model.add(Dense(num_neurons, activation='relu', input_shape=(2,)))
+    new_model.add(Dropout(dropout_rate))
+    for _ in range(num_layers - 1):
+        new_model.add(Dense(num_neurons, activation='relu'))
+        new_model.add(Dropout(dropout_rate))
+    new_model.add(Dense(1))
+
+    optimizer = Adam()
+    new_model.compile(optimizer=optimizer, loss='mse')
+
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    model_checkpoint = ModelCheckpoint("best_parsimonious_model.keras", monitor='val_loss', save_best_only=True)
+
+
+    history = new_model.fit(x_train, y_train_predicted, validation_data=(x_val, y_val_predicted),
+                            epochs=100, batch_size=30, callbacks=[early_stopping, model_checkpoint], verbose=1)
+
+    val_loss = history.history['val_loss'][-1]
+    return val_loss
+
+result = gp_minimize(objective_function, space, n_calls=20, random_state=42, acq_func='EI')
+
+best_hyperparameters = result.x
+
+MAE_NN(x_train, y_train, x_val, y_val, best_hyperparameters).train_model()
+
+```
+
+
+```{python}
+#| echo: false
+model_parsimonious = tf.keras.models.load_model('/home/micaelpapa/Desktop/Neural-Nets/best_parsimonious_model.keras')
+
+print(f"Best parsimonious architecture:")
+
+print(get_model_info(model_parsimonious))
+
+val_loss = model_parsimonious.evaluate(x_val, y_hats, verbose=0)
+
+print(f"Validation Loss:{val_loss:.3f}")
+```
+
+The low validation loss suggests that the parsimonious model is effectively learning from the error patterns produced by the more complex one. This means that the simpler model is able to accurately predict the errors in the predictions made by the previous network on unseen data.
+
+By training on the errors, this model might be capturing nuances or patterns in the data that were not adequately captured by the previous one, thereby improving the overall predictive performance in capturing the conditional distribution of Y given X1 and X2, mathematically we can show why the parsimonious model is predicting the erros : 
+
+Assuming for simplicity :
+
+
+-  **Model A : Complex Network** 
+-  **Model  B : Parsimonious Network** 
+
+We can mathematically formulate the process by which Model B predicts the errors of Model A.
+
+Let $Y$ be the target variable we want to predict. Model A makes its predictions as $\hat{Y}_A$, and Model B makes its predictions as $\hat{Y}_B$.
+
+We can represent the predictions of Model A as:
+
+$$ \hat{Y}_A = f_A(X_1, X_2) + \epsilon_A $$
+
+Where $f_A(X_1, X_2)$ is the function that Model A learns to predict $Y$, and $\epsilon_A$ are the errors or residuals associated with these predictions.
+
+Model B is trained to predict these errors $\epsilon_A$ from Model A. So, we can represent the predictions of Model B as:
+
+$$ \hat{\epsilon}_B = g_B(X_1, X_2) $$
+
+Where $g_B(X_1, X_2)$ is the function that Model B learns to predict the errors of Model A.
+
+The final combined prediction, $\hat{Y}_{\text{combined}}$, can be expressed as the sum of the predictions from Model A and the predictions from Model B:
+
+$$ \hat{Y}_{\text{combined}} = \hat{Y}_A + \hat{\epsilon}_B $$
+
+Substituting the expressions for $\hat{Y}_A$ and $\hat{\epsilon}_B$, we get:
+
+$$ \hat{Y}_{\text{combined}} = f_A(X_1, X_2) + g_B(X_1, X_2) $$
+
+Therefore, Model B makes its predictions by adjusting the predictions of Model A based on the error patterns it learns during training. This allows Model B to capture and correct the errors or residuals associated with the predictions of Model A, potentially improving the overall accuracy of the combined model.
+
+
+On that note, we can adjust the predictions considering the learned error patterns from simpler model : 
+
+
+```{python}
+
+actual_values = y_val
+
+predictions = y_hats
+
+errors = y_val - model_parsimonious.predict(x_val, verbose = 0)
+
+
+predictions_combined = predictions + errors
+
+
+## model_a = complex network 
+
+mse_model_a = mean_squared_error(actual_values, predictions)
+rmse_model_a = np.sqrt(mse_model_a)
+mae_model_a = mean_absolute_error(actual_values, predictions)
+r2_model_a = r2_score(actual_values, predictions)
+
+mse_combined = mean_squared_error(actual_values, predictions_combined)
+rmse_combined = np.sqrt(mse_combined)
+mae_combined = mean_absolute_error(actual_values, predictions_combined)
+r2_combined = r2_score(actual_values, predictions_combined)
+
+print("Metrics for the Complex network:")
+print(f"MSE: {mse_model_a:.3f}")
+print(f"MAE: {mae_model_a:.3f}")
+
+print("\nMetrics for Combined Predictions:")
+print(f"MSE: {mse_combined:.3f}")
+print(f"MAE: {mae_combined:.3f}")
+
+
+```
+
+As expected, we can see a notable improvement into the MSE and MAE. 
+
+
+\vspace{.4cm}
+\noindent

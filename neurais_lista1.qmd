@@ -1,0 +1,1019 @@
+---
+metadata:
+  title: "Neural Network First List"
+  subtitle: "Building a neural network from scratch"
+  author:
+    - name: "Micael Egídio Papa da Silva"
+      email: "micael12eps@gmail.com"
+  date: last-modified
+  date-format: "DD-MM-YYYY"
+  format:
+    html:
+      code-fold: true
+      code-summary: "Show/hide code"
+      code-copy: true
+      number-sections: true
+      toc: true
+      toc-depth: 2
+      title-block-banner: "#FF5733" 
+      self-contained: true
+    pdf:
+      include-in-header: 
+        text: |
+          \usepackage{xcolor}
+          \definecolor{titleblockcolor}{HTML}{27445C}
+          \makeatletter
+          \AtBeginDocument{
+            \hypersetup{
+              pdftitle={\@title},
+              pdfauthor={\authors}
+            }
+          }
+          \makeatother   
+  execute:
+    warning: false
+editor: visual
+editor_options: 
+  chunk_output_type: console
+reference-location: margin
+---
+
+# Neural Network First List {.unnumbered}
+
+# Generating the Data {.unnumbered}
+
+Consider a data-generating process in the form:
+
+```{=tex}
+\begin{align*}
+Y & \sim N(\mu, \sigma=1) \\
+\mu & = |X_1^3 - 30 \sin(X_2) + 10| \\
+X_j & \sim \text{Uniform}(-3, 3), \quad j=1, 2.
+\end{align*}
+```
+In this model (which we will consider as the "**real model**"), the conditional expectation of $Y$ is given by $E(Y|X_1, X_2) = |X_1^3 - 30 \sin(X_2) + 10|$. The three-dimensional surface $(E(Y|X_1, X_2), X_1, X_2)$ is represented in two Cartesian dimensions.
+
+The following code simulates $m=100,000$ observations of this process.
+
+In this list, we are interested in estimating the above model using a simple neural network, adjusted on simulated data. Specifically, we want to build a neural network with only one hidden layer containing two neurons.
+
+Mathematically, the network is described by the following equations:
+
+```{=tex}
+\begin{align*}
+h_1 & = \phi(x_1 w_1 + x_2 w_3 + b_1) = \phi(a_1) \\
+h_2 & = \phi(x_1 w_2 + x_2 w_4 + b_2) = \phi(a_2) \\
+\hat{y} & = h_1 w_5 + h_2 w_6 + b_3,  
+\end{align*}
+```
+where $\phi(x) = \frac{1}{1+e^{-x}}$ represents the logistic activation function (sigmoid).
+
+We will adopt the mean squared error as the cost function, expressed as:
+
+$$
+J(\theta) = \frac{1}{m} \sum_{i=1}^m L(f(x_{1i}, x_{2i}; \theta), y_i) = \frac{1}{m} \sum_{i=1}^m (y_i - \hat{y}_i)^2,
+$$
+
+\$\$ where $x_{ji}$ represents the $j$-th (*feature*) of the $i$-th observation, $\theta = (w_1, \ldots, w_6, b_1, b_2, b_3)$ is the weight vector (parameters), and by the network definition:
+
+$$f(x_{1i}, x_{2i}; \theta)=\hat{y}_i=\phi(x_{1i}  w_1 + x_{2i} w_3 + b_1) w_5 + \phi(x_{1i}  w_2 + x_{2i} w_4 + b_2) w_6 + b_3.$$
+
+In matrix notation, the neural network can be described as:
+
+```{=tex}
+\begin{align*}
+\mathbf{a} & = \mathbf{W}^{(1)\top} \mathbf{x} + \mathbf{b}^{(1)} \\
+\mathbf{h} & =  \phi(\mathbf{a})   \\
+\hat{y} & = \mathbf{W}^{(2)\top} \mathbf{h} + b_3  
+\end{align*}
+```
+where
+
+$$ \mathbf{W}^{(1)}=\begin{pmatrix}
+w_1 & w_2 \\
+w_3 & w_4 
+\end{pmatrix}, \quad \mathbf{W}^{(2)} = \begin{pmatrix}
+w_5  \\
+w_6  
+\end{pmatrix}, \quad \mathbf{b}^{(1)} = \begin{pmatrix}
+b_1  \\
+b_2  
+\end{pmatrix}, \quad
+\mathbf{x} = \begin{pmatrix}
+x_1  \\
+x_2  
+\end{pmatrix}, \quad
+\mathbf{h} = \begin{pmatrix}
+h_1  \\
+h_2  
+\end{pmatrix}, \quad
+\mathbf{a} = \begin{pmatrix}
+a_1  \\
+a_2  
+\end{pmatrix}.
+$$
+
+# Libraries {.unnumbered}
+
+```{python}
+import numpy as np
+import pandas as pd
+
+import scipy.stats as st
+import statsmodels.formula.api as smf
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.io as pio
+
+```
+
+# Functions {.unnumbered}
+
+```{python}
+ 
+class SimpleNeuralNetwork:
+    """
+    Class implementing a simple neural network.
+
+    Attributes:
+        W_1 (ndarray): Weights of the first layer of the network.
+        W_2 (ndarray): Weights of the second layer of the network.
+        b_1 (ndarray): Bias of the first layer of the network.
+        b_2 (ndarray): Bias of the second layer of the network.
+
+    Methods:
+        sigmoid(self, x): Sigmoid activation function.
+        loss(self, y_hat, y): Computes the loss function of the network.
+        derivative_loss(self, y_hat, y): Computes the derivative of the loss function.
+        forward_pass(self, X, theta): Performs forward pass through the neural network.
+        backpropagation(self, y_hat, y, X): Performs backpropagation of gradients through the neural network.
+        loss_calculation(self, y_hat, y): Computes the loss function of the network.
+        forward_pass_L2(self, X, theta, lambda_val): Performs forward pass through the neural network with L2 regularization.
+        backpropagation_L2(self, y_hat, y, X, lambda_val): Performs backpropagation of gradients through the neural network with L2 regularization.
+        loss_calculation_L2(self, y_hat, y, lambda_val): Computes the loss function of the network with L2 regularization.
+        operate(self, X, theta, y=None, operation='forward', lambda_val=None): Performs operations on the network, such as forward pass, backpropagation, loss calculation, etc.
+    """
+    def __init__(self):
+        self.W_1 = None
+        self.W_2 = None
+        self.b_1 = None
+        self.b_2 = None
+
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+    def loss(self, y_hat, y):
+        return np.mean((y_hat - y) ** 2)
+
+    def derivative_loss(self, y_hat, y):
+        return 2 * (y_hat - y) / y.shape[0]
+
+    def forward_pass(self, X, theta):
+        self.W_1 = theta[:4].reshape(2, 2)
+        self.W_2 = theta[4:6].reshape(2, 1)
+        self.b_1 = np.tile(theta[6:8].reshape(1, 2), (X.shape[0], 1))
+        self.b_2 = theta[8].reshape(1, 1)
+
+        A_1 = X @ self.W_1 + self.b_1
+        H_1 = self.sigmoid(A_1)
+        y_hat = H_1 @ self.W_2 + self.b_2
+
+        return y_hat
+
+    def backpropagation(self, y_hat, y, X):
+        H_1 = self.sigmoid(X @ self.W_1 + self.b_1)
+        dA_2 = self.derivative_loss(y_hat, y)
+        dW_2 = H_1.T @ dA_2
+        db_2 = np.sum(dA_2, axis=0, keepdims=True)
+
+        dH_1 = dA_2 @ self.W_2.T
+        dA_1 = dH_1 * H_1 * (1 - H_1)  ##  H_1 * (1 - H_1) is the derivative of the sigmoid calculated at H_1
+        dW_1 = X.T @ dA_1
+        db_1 = np.sum(dA_1, axis=0, keepdims=True)
+
+        gradients = np.hstack((dW_1.ravel(), dW_2.ravel(), db_1.ravel(), db_2.ravel()))
+        return gradients
+
+    def loss_calculation(self, y_hat, y):
+        return self.loss(y_hat, y)
+
+    def forward_pass_L2(self, X, theta, lambda_val):
+        self.W_1 = theta[:4].reshape(2, 2)
+        self.W_2 = theta[4:6].reshape(2, 1)
+        self.b_1 = np.tile(theta[6:8].reshape(1, 2), (X.shape[0], 1))
+        self.b_2 = theta[8].reshape(1, 1)
+
+        A_1 = X @ self.W_1 + self.b_1
+        H_1 = self.sigmoid(A_1)
+        y_hat = H_1 @ self.W_2 + self.b_2 + lambda_val * (np.sum(self.W_1 ** 2) + np.sum(self.W_2 ** 2))
+
+        return y_hat
+
+    def backpropagation_L2(self, y_hat, y, X, lambda_val):
+        H_1 = self.sigmoid(X @ self.W_1 + self.b_1)
+        dA_2 = self.derivative_loss(y_hat, y) + 2 * lambda_val * self.W_2.T
+        dW_2 = H_1.T @ dA_2
+        db_2 = np.sum(dA_2, axis=0, keepdims=True)
+
+        dH_1 = dA_2 @ self.W_2
+        dA_1 = dH_1 * H_1 * (1 - H_1)
+        dW_1 = X.T @ dA_1 + 2 * lambda_val * self.W_1
+        db_1 = np.sum(dA_1, axis=0, keepdims=True)
+
+        gradients = np.hstack((dW_1.ravel(), dW_2.ravel(), db_1.ravel(), db_2.ravel()))
+        return gradients
+
+    def loss_calculation_L2(self, y_hat, y, lambda_val):
+        return self.loss(y_hat, y) + lambda_val * (np.sum(self.W_1 ** 2) + np.sum(self.W_2 ** 2))
+
+    def operate(self, X, theta, y=None, operation='forward', lambda_val=None):
+        if operation == 'forward':
+            return self.forward_pass(X, theta)
+        elif operation == 'backpropagation':
+            y_hat = self.forward_pass(X, theta)
+            return self.backpropagation(y_hat, y, X)
+        elif operation == 'loss':
+            y_hat = self.forward_pass(X, theta)
+            return self.loss_calculation(y_hat, y)
+        elif operation == 'forward_L2':
+            return self.forward_pass_L2(X, theta, lambda_val)
+        elif operation == 'backpropagation_L2':
+            y_hat = self.forward_pass_L2(X, theta, lambda_val)
+            return self.backpropagation_L2(y_hat, y, X, lambda_val)
+        elif operation == 'loss_L2':
+            y_hat = self.forward_pass_L2(X, theta, lambda_val)
+            return self.loss_calculation_L2(y_hat, y, lambda_val)
+
+
+
+#### Data vis   
+
+def create_parameter_table(theta):
+    """
+    Create a parameter table DataFrame from a given theta array.
+
+    Parameters:
+    - theta (numpy.ndarray): The parameter array containing weights and biases.
+
+    Returns:
+    - pd.DataFrame: DataFrame representing the parameter table (transposed).
+    """
+    theta_list = theta.tolist()
+    num_params = len(theta_list) - 3
+    num_biases = 3
+    
+    param_column_names = [f'w_{i+1}' for i in range(num_params)]
+    bias_column_names = [f'b_{i+1}' for i in range(num_biases)]
+    column_names = param_column_names + bias_column_names
+    
+    parameter_table = pd.DataFrame([theta_list], columns=column_names).T
+    
+    parameter_table.columns = ['']
+    
+    return parameter_table
+
+
+def create_gradient_plot():
+    """
+    Create a plot showing the gradient as a function of the number of iterations.
+
+    This function generates a plot with two traces: one representing the gradient as a function of
+    the number of iterations, and the other representing the previous gradient. It visualizes how
+    the gradient changes over the course of the iterations.
+
+    Returns:
+    - fig (plotly.graph_objects.Figure): Plotly figure object representing the gradient plot.
+    """
+
+    theta = np.array([0.1] * 9)
+    data_array = np.array(data)
+
+    dJ_dw_1 = [nn.operate(data_array[:k, :2], theta, data_array[:k, 2].reshape(k, 1), "backpropagation")[0] for k in range(300)]
+
+    x_values = list(range(len(dJ_dw_1)))
+    y_red_line = nn.operate(x_train, theta, y_train, "backpropagation")[0]
+
+    trace1 = go.Scatter(x=x_values, y=dJ_dw_1, mode='lines', name='Gradient', line=dict(color='white', width=2))
+    trace2 = go.Scatter(x=x_values, y=[y_red_line] * len(x_values), mode='lines', name='Previous gradient', line=dict(color='red', width=2, dash='dashdot'))
+
+    fig = go.Figure(data=[trace1, trace2])
+
+    fig.update_layout(title='∂J/∂w₁ as a function of Number of Iterations',
+                      xaxis_title='Number of iterations',
+                      yaxis_title='',
+                      hovermode='closest',
+                      legend=dict(font=dict(color='white')),
+                      template='plotly_dark')
+
+
+    return fig
+
+def generate_traces(all_parameters_df):
+    W1_weights = all_parameters_df.loc[['w_1', 'w_3']]   ## w_1 = w_2 and w_3 = w_4
+    W2_weights = all_parameters_df.loc[['w_5']]          ## w_5 = w_6
+    B1_biases = all_parameters_df.loc[['b_1']]    ## b_1 = b_2
+    B2_biases = all_parameters_df.loc[['b_3']]
+
+    traces = []
+
+    for i, row in enumerate(B2_biases.values):
+        label = f'b{i+3}'
+        trace = go.Scatter(x=np.arange(len(row)), y=row, mode='lines', name=label)
+        traces.append(trace)
+
+    for i, row in enumerate(B1_biases.values):
+        label = 'b1 = b2' if i == 0 else None
+        trace = go.Scatter(x=np.arange(len(row)), y=row, mode='lines', name=label)
+        traces.append(trace)
+
+    for i, row in enumerate(W1_weights.values):
+        label = 'w1 = w2' if i == 0 else 'w3 = w4'
+        trace = go.Scatter(x=np.arange(len(row)), y=row, mode='lines', name=label)
+        traces.append(trace)
+
+    for i, row in enumerate(W2_weights.values):
+        label = 'w5 = w6' if i == 0 else None
+        trace = go.Scatter(x=np.arange(len(row)), y=row, mode='lines', name=label)
+        traces.append(trace)
+
+    return traces
+
+def plot_weights_biases_behavior(all_parameters_df, best_epoch=17):
+    traces = generate_traces(all_parameters_df)
+
+    best_params_values = [all_parameters_df.values[i][best_epoch] for i in range(5)]
+
+    scatter_trace = go.Scatter(x=[best_epoch] * 5,
+                               y=best_params_values,
+                               mode='markers',
+                               marker=dict(color='purple', size=10),
+                               name='Best Params')
+
+    traces.append(scatter_trace)
+
+    layout = go.Layout(
+        title='Behavior of Weights and Biases over Epochs',
+        xaxis=dict(title='Epoch'),
+        yaxis=dict(title='Value'),
+        legend=dict(orientation='h', x=0, y=-0.2),
+        hovermode='closest',
+    )
+
+    y_min = min(all_parameters_df.values.min(axis=1))
+    y_max = max(all_parameters_df.values.max(axis=1))
+
+    shapes = [
+        dict(
+            type="rect",
+            x0=best_epoch,
+            y0=y_min,
+            x1=best_epoch,
+            y1=y_max,
+            line=dict(color="purple", width=2),
+            name=f'Epoch {best_epoch}'
+        )
+    ]
+
+    fig = go.Figure(data=traces, layout=layout)
+    fig.update_layout(shapes=shapes, legend_traceorder='reversed', showlegend=True, legend_title='')
+    fig.show()
+
+def calculate_timing(k):
+    """
+
+    This function measures the average execution time of the backpropagation 
+    for the first `k` rows of the data.
+
+    Parameters:
+    - k (int): Number of rows to consider from the data.
+
+    Returns:
+    - average_timing (float): Average execution time of the neural network operation in seconds.
+    """
+    x = data.__array__()[:k, :2]
+    y = data.__array__()[:k, 2].reshape(k, 1)
+    timing = %timeit -o nn.operate(x, theta, y, "backpropagation")
+    return timing.average
+
+
+
+def calculate_capture_rate(predictions, z):
+    """
+    Calculate the capture rate.
+
+    Capture rate is the percentage of predictions falling within a specified range [-z, z].
+
+    Parameters:
+    - predictions (array-like): Predicted values.
+    - z (float): Threshold value defining the range.
+
+    Returns:
+    - capture_rate (float): Percentage of predictions falling within the range [-z, z].
+    """
+    capture_rate = ((predictions >= -z) & (predictions <= z)).mean() * 100
+    return capture_rate
+
+
+```
+
+# Questions {.unnumbered}
+
+**Considering the information above, answer the following items.**
+
+<!-- \vspace{.4cm} -->
+
+## **a)** {.unnumbered}
+
+Create a computational function to calculate the predicted value of the response variable $\hat{y}=f(\mathbf{x}; \pmb{\theta})$ as a function of $\mathbf{x}$ and $\pmb{\theta}$. Use the function to calculate $\hat{y}$ for $\pmb{\theta}=(0.1, \ldots, 0.1)$ and $\mathbf{x}=(1, 1)$. Hint: see Algorithm 6.3 of the book Deep Learning.
+
+The algorithm was adapted to a matrix calculation, which is more efficient.
+
+```{python}
+
+nn = SimpleNeuralNetwork()
+
+theta = np.array([0.1] * 9)
+X = np.array([1] * 2).reshape(1, 2)
+
+y_hat = nn.operate(X, theta)
+
+
+print(f'Predicted value obtained was {y_hat.item():.3f}')
+
+```
+
+## **b)** {.unnumbered}
+
+Create a computational routine to calculate the cost function $J(\bf{\theta})$. Then, divide the observed dataset so that the **first** 80,000 samples comprise the **training** set, the next 10,000 comprise the **validation** set, and the **last** 10,000 comprise the **test** set. What is the cost of the network **on the test set** when $\bf{\theta}=(0.1, \ldots, 0.1)$?
+
+```{python}
+
+data = pd.read_csv('/home/micaelpapa/Desktop/Neural-Nets/Neural-Nets.csv', dtype=np.float64, index_col=0).reset_index(drop=True)
+
+# Dividing the data into training, validation, and test sets.
+
+x_train = data.__array__()[:80000, :2]
+y_train = data.__array__()[:80000, 3].reshape(80000, 1)
+
+x_val = data.__array__()[80000:90000, :2]
+y_val = data.__array__()[80000:90000, 3].reshape(10000, 1)
+
+x_test = data.__array__()[-10000:, :2]
+y_test = data.__array__()[-10000:, 3].reshape(10000, 1)
+
+
+
+train_data = data.iloc[:80000, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+test_data = data.iloc[90000:, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+val_data = data.iloc[-10000:, [0, 1, -1]].rename(columns={'x1.obs': 'x1', 'x2.obs': 'x2'})
+
+theta = np.array([0.1] * 9)
+
+print(f'Cost of the network on the test set: {nn.operate(x_test, theta, y_test, "loss"):.3f}')
+
+```
+
+## **c)** {.unnumbered}
+
+Use the chain rule to find algebraic expressions for the gradient vector
+
+$$
+\nabla_\theta J(\pmb{\theta}) = \left(\frac{\partial J}{\partial w_1}, 
+\ldots, \frac{\partial J}{\partial b_3} \right).
+$$
+
+we can see that :
+
+```{=tex}
+\begin{align*}
+\frac{\partial J}{\partial \hat{y}} = \sum_{i=1}^n \frac{-2}{m} (y_i - \hat{y}_i) = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \\
+
+\end{align*}
+```
+Next we have:
+
+```{=tex}
+\begin{align*}
+
+\frac{\partial J}{\partial w_1} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^1} \frac{\partial h^1}{\partial a^1} \frac{\partial a^1}{\partial w_1} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_5 \cdot \phi'(a_{i,1}) \cdot x_i^1  \\
+
+\frac{\partial J}{\partial w_2} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^2} \frac{\partial h^2}{\partial a^2} \frac{\partial a^2}{\partial w_2} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_6 \cdot \phi'(a_{i,2})  \cdot x_i^1 \\
+
+\frac{\partial J}{\partial w_3} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^1} \frac{\partial h^1}{\partial a^1} \frac{\partial a^1}{\partial w_3} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_5 \cdot \phi'(a_{i,1}) \cdot x_i^2  \\
+
+\frac{\partial J}{\partial w_4} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^2} \frac{\partial h^2}{\partial a^2} \frac{\partial a^2}{\partial w_4} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_6 \cdot \phi'(a_{i,2})  \cdot x_i^2\\
+
+\frac{\partial J}{\partial w_5} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial w_5} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot h_i^1  \\
+
+\frac{\partial J}{\partial w_6} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial w_6} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot h_i^2  \\
+
+\frac{\partial J}{\partial b_1} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^1} \frac{\partial h^1}{\partial a^1} \frac{\partial a^1}{\partial b_1} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_5 \cdot \phi'(a_{i,1}) \cdot 1 \  \\
+
+\frac{\partial J}{\partial b_2} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial h^2} \frac{\partial h^2}{\partial a^2} \frac{\partial a^2}{\partial b_2} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot w_6 \cdot \phi'(a_{i,2}) \cdot 1 \\
+
+\frac{\partial J}{\partial b_3} & = \frac{\partial J}{\partial \hat{y}} \frac{\partial \hat{y}}{\partial b_3} = \sum_{i=1}^n \frac{2}{m} (\hat{y}_i - y_i) \cdot 1  
+\end{align*}
+```
+Where :
+
+```{=tex}
+\begin{align*}
+
+\phi'(a_{i,1}) = \frac{e^{-a_i^1}}{\left( 1+e^{-a_i^1} \right)^{2}}, \quad 
+
+\phi'(a_{i,2}) = \frac{e^{-a_i^2}}{\left( 1+e^{-a_i^2} \right)^{2}} 
+
+\end{align*}
+```
+## **d)** {.unnumbered}
+
+Create a computational function that takes as input the vector $\bf{\theta}$, a design matrix ($x$), and the corresponding observations ($y$), and provides as output the gradient defined in item c). Present the result of the function applied to the **training set** when $\bf{\theta}=(0.1, \ldots, 0.1)$. Attention: implement the *back-propagation* algorithm (Algorithm 6.4 of the book Deep Learning) to avoid performing the same operation multiple times.
+
+The gradient from uniform $\theta$ is:
+
+```{python}
+theta = np.array([0.1] * 9)
+
+gradient = nn.operate(x_train, theta , y_train, 'backpropagation')
+
+parameter_table = create_parameter_table(gradient)
+print(parameter_table)
+
+```
+
+## **e)** {.unnumbered}
+
+Apply the gradient method to find the parameters that minimize the cost function in the **validation set**. Start the algorithm at the point $\bf{\theta}=(0, \ldots, 0)$, use a learning rate $\epsilon=0.1$, and run the algorithm for 100 iterations. Report the lowest cost obtained and indicate at which iteration it was observed. Also, present the estimated weight vector and comment on the result.
+
+```{python}
+
+theta = np.zeros(9)
+learning_rate = 0.1
+epochs = 100
+min_loss = float("inf")
+best_theta = None
+
+train_list = []
+val_list = []
+parameter_tables = []
+
+for epoch in range(epochs):
+    parameter_tables.append(create_parameter_table(theta))
+
+    grad_train = nn.operate(x_train, theta, y_train, 'backpropagation')
+    theta -= learning_rate * grad_train
+
+    train_loss = nn.operate(x_train, theta, y_train, 'loss')
+    train_list.append(train_loss)
+
+    val_loss = nn.operate(x_val, theta, y_val, 'loss')
+    val_list.append(val_loss)
+
+    # Updating best parameters if current loss is lower:
+    
+    best_epoch = np.argmin(train_list)
+    best_theta = np.copy(theta) if train_list[best_epoch] < min_loss else best_theta
+    min_loss = min(min_loss, train_list[best_epoch])
+
+all_parameters_df = pd.concat(parameter_tables, axis=1)
+column_names = [f'{i+1}' for i in range(epochs)]
+all_parameters_df.columns = column_names
+
+parameter_table = create_parameter_table(best_theta)
+
+print(f"Lowest cost obtained was {min_loss:.2f} at epoch {best_epoch}")
+print("With the parameters:")
+print(parameter_table)
+
+```
+
+We observe that the parameters $w_{1}$ = $w_{2}$, $w_{3}$ = $w_{4}$, $w_{5}$ = $w_{6}$, and $b_{1}$ = $b_{2}$ share the same values, highlighting the symmetry inherent in this neural network. The network's symmetry is a consequence of the weights initialized at uniform values.
+
+It's important to highlight that the parameters in the $W^1$ matrix are predominantly negative. This arises from the nature of the sigmoid activation function, which outputs values between 0 and 1. Consequently, the negative parameters in the first layer serve to counterbalance the frequently negative input values (generated uniformly). Any diminutive values computed in the initial layer will then be offset by the positive parameters of the $W^2$ matrix and the $b_3$ bias in the subsequent layer, as shown in the plot :
+
+```{python}
+plot_weights_biases_behavior(all_parameters_df)
+```
+
+## **f)** {.unnumbered}
+
+Present the graph of the cost on the **training set** and the **validation set** (one line for each) as a function of the iteration number of the optimization process. Comment on the results.
+
+```{python}
+
+
+epochs = np.arange(1, len(train_list) + 1)
+
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=epochs, y=train_list, mode='lines', name='Train', marker=dict(color='red')))
+fig.add_trace(go.Scatter(x=epochs, y=val_list, mode='lines', name='Validation', marker=dict(color='blue')))
+
+train_min_index = np.argmin(train_list)
+val_min_index = np.argmin(val_list)
+train_min_value = train_list[train_min_index]
+val_min_value = val_list[val_min_index]
+
+fig.add_trace(go.Scatter(x=[epochs[train_min_index]], y=[train_min_value], mode='markers', name=f'Min Train Cost: {train_min_value:.2f}', marker=dict(color='red', size=10)))
+fig.add_trace(go.Scatter(x=[epochs[val_min_index]], y=[val_min_value], mode='markers', name=f'Min Validation Cost: {val_min_value:.2f}', marker=dict(color='blue', size=10)))
+
+fig.update_layout(
+    title="Cost in training and validation set",
+    xaxis_title="Epochs",
+    yaxis_title="Cost",
+    font=dict(size=14),
+    xaxis=dict(tickvals=np.arange(0, len(train_list) + 1, step=5)),
+    yaxis=dict(tickfont=dict(size=12)),
+    yaxis_range=[140, 150],
+    xaxis_ticks="outside",
+    yaxis_ticks="outside",
+    xaxis_ticklen=5,
+    yaxis_ticklen=5,
+    xaxis_tickwidth=1,
+    yaxis_tickwidth=1,
+    xaxis_tickcolor='gray',
+    yaxis_tickcolor='gray',
+    xaxis_linewidth=1,
+    yaxis_linewidth=1,
+    xaxis_gridcolor='lightgray',
+    yaxis_gridcolor='lightgray',
+    showlegend=True
+)
+
+fig.show()
+```
+
+The graph is illustrating that the average cost over the validation set exceeded that of the test set. The lines reached their minimum at different iterations, and afterwards , they preserve the fluctuation between close values.
+
+## **g)** {.unnumbered}
+
+Calculate the predicted values ($\hat{y}_i$) and the residuals ($y_i-\hat{y}_i$) of the network on the test set and represent them graphically as a function of $x_1$ and $x_2$. Hint: Use as a base the code used for visualizing the surface $(E(Y|X_1, X_2), X_1, X_2)$. Change the color gradient and, if necessary, use semi-transparent points. Analyze the performance of the network in different regions of the plane. Are there places where the model is clearly biased or less accurate?
+
+```{python}
+
+residuals = np.array(y_test - nn.operate(x_test, best_theta)).flatten()
+
+x1 = x_test[:, 0]
+x2 = x_test[:, 1]
+
+
+
+scatter = go.Scatter3d(
+    x=x1,
+    y=x2,
+    z=residuals,
+    mode='markers',
+    marker=dict(
+        size=5,
+        color=residuals,
+        colorscale= 'jet',
+        colorbar=dict(title='Residuals'),
+        opacity=0.8
+    ),
+    text='Residuals',
+)
+
+layout = go.Layout(
+    title= "3D Scatter Plot of Residuals in relation to x1 and x2",
+    scene=dict(
+        xaxis=dict(title='x1'),
+        yaxis=dict(title='x2'),
+        zaxis=dict(title='Residuals')
+    )
+)
+
+fig = go.Figure(data=[scatter], layout=layout)
+
+filename = "3d_scatter_plot_residuals.html"
+
+pio.write_html(fig, filename)
+
+fig.show()
+
+ 
+```
+
+From the 3D plot, it's apparent that $E[u|X_1, X_2] \neq E[u]$, suggesting that the residual bias varies across different positions within the $X_1$ and $X_2$ plane. Visually, this implies that the model's performance differs depending on where we are located within the cube formed by $X_1$, $X_2$, and $u$.
+
+We can see a better performance (residuals varying from -10 to 10) surrounding the senoidal shape. The regions that tends to underestimate the expected values of y are more concentrated throughout the senoidal and , the regions that beholds the most overestimated values are in the extreme values of the cube, satisfying the intervals :
+
+The upper left region of the plane $X_1 X_2$ :
+
+$2 \leq x_1 \leq 3 \quad \text{e} \quad -3 \leq x_2 \leq -1$
+
+The bottom right region of the plane $X_1 X_2$ :
+
+$-3 \leq x_1 \leq -2.5 \quad \text{e} \quad 1 \leq x_2 \leq 2$
+
+In a more general way, whenever the product $X_1 \cdot X2 < 0$ the residuals tends to assume $u > 15$
+
+One potential solution could involve employing deeper networks with increased neuron complexity to better capture and represent this intricate relationship within the 3D space of the cube.
+
+## **h)** {.unnumbered}
+
+Make a graph of the observed value ($y_i$) as a function of the expected value ($\hat{y}_i=E(Y_i|x_{1i}, x_{2i})$) for each observation in the test set. Interpret the result.
+
+```{python}
+y_hat_test = nn.operate(x_test, theta)
+
+
+fig = go.Figure(data=go.Scatter(
+    x=y_hat_test.flatten(),
+    y=y_test.flatten(),
+    mode='markers',
+    marker=dict(
+        color='blue'  
+    )))
+
+fig.update_layout(
+    title='Observed Value vs. Expected Value ',
+    xaxis_title='y&#x0302;<sub>i</sub>',
+    yaxis_title='y<sub>i</sub>',
+    font=dict(size=14),
+    showlegend=False,
+    plot_bgcolor='rgba(240, 240, 240, 0.6)',
+    hovermode='closest',
+    margin=dict(l=50, r=50, t=50, b=50),
+)
+
+
+fig.show()
+
+
+```
+
+Upon graph, it becomes evident that the data points are dispersed significantly from the ideal $y=x$ line, suggesting challenges in achieving precise data representation by the model. This divergence hints at the presence of distinct biases across different regions of the dependent variable, $Y$. Such biases, likely stemming from complexities within the dataset or from the neural network limitations, manifest as deviations from the expected linear relationship.
+
+## **i)** {.unnumbered}
+
+For each $k=1, \ldots, 300$, recalculate the gradient obtained in item d) using only the first $k$ observations from the original database. Again, use $\bf{\theta}=(0.1, \ldots, 0.1)$. Present a graph with the value of the first element of the gradient (i.e., the partial derivative $\frac{\partial J}{\partial w_1}$) as a function of the number of samples $k$. As a reference, add a red horizontal line indicating the value obtained in d). Then, use the `microbenchmark` function to compare the time it takes to calculate the gradient for $k=300$ and $k=100,000$. Explain how the results of this analysis can be used to speed up the execution of item e).
+
+```{python}
+
+plot = create_gradient_plot()
+
+ks = [300, 100000]
+
+timings = list(map(calculate_timing, ks))
+
+time_increase = timings[1] / timings[0]
+
+fig = go.Figure()
+
+fig.add_trace(go.Bar(
+    x=['k = 300', 'k = 100000'],
+    y=timings,
+    marker_color=['blue', 'orange'],
+    text=[f'{timing:.6f} s' for timing in timings],
+    textposition='auto',
+    name='Timings'
+))
+
+fig.add_annotation(
+    x='k = 100000', y=timings[1],
+    text=f'Time Increase: {time_increase:.3f}x',
+    showarrow=True,
+    arrowhead=2,
+    arrowsize=1,
+    arrowwidth=2,
+    arrowcolor='black',
+    ax=20,
+    ay=-30,
+    bgcolor='white'
+)
+
+fig.update_layout(
+    title='Backpropagation Timings for Different Values of k original dataset observations',
+    xaxis=dict(title=''),
+    yaxis=dict(title='Average Time (s)'),
+    width=700,
+    height=500
+)
+
+
+ 
+
+
+```
+
+The initial run exhibited notably faster performance per iteration in comparison to the second run. This variance arises primarily from the vectorized computation of gradients, where the computational workload scales with the number of observations , consequently, with a reduced number of observations, the computation time per observation decreases. This phenomenon is particularly evident in the stabilization of the gradient calculation after approximately 30 observations.
+
+This optimization of the procedure in e) highlights the efficiency gains achieved through leveraging vectorized computations, ultimately contributing to enhanced performance and computational efficiency.
+
+## **j)** {.unnumbered}
+
+Fit a normal linear model on the training set (**linear model 1**). $$
+Y_i \sim N(\beta_0 + \beta_1 x_{1i} + \beta_2 x_{2i}, \sigma)
+$$
+
+Using the `lm` function from the `R` package (or another equivalent), fit a normal linear model on the training set. Then, include quadratic and linear interaction terms in the list of covariates. That is, assume that in **linear model 2**,, $$
+E(Y|x_1, x_2) = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \beta_3 x_1^2 + \beta_4 x_2^2 + \beta_5 x_1 x_2.
+$$
+
+Compare the mean squared error on the test set of the two linear models above with that of the previously fitted neural network. Which of the 3 models would you use for prediction? Justify your answer.
+
+The predictions will be made considering the validation dataset
+
+```{python}
+regression_1 = smf.ols(formula='y ~ x1 + x2', data=train_data).fit()
+print(regression_1.summary())
+
+```
+
+```{python}
+regression_2 = smf.ols(formula='y ~ x1 + x2 + I(x1**2) + I(x2**2) + x1:x2', data=train_data).fit()
+print(regression_2.summary())
+
+```
+
+```{python}
+
+predictions_1_val = regression_1.predict(val_data[['x1', 'x2']])
+predictions_2_val = regression_2.predict(val_data[['x1', 'x2']])
+predictions_nn = nn.operate(val_data[['x1', 'x2']].to_numpy(), best_theta)
+
+mse_1 = np.mean((predictions_1_val - val_data['y']) ** 2)
+mse_2 = np.mean((predictions_2_val - val_data['y']) ** 2)
+mse_nn = np.mean((predictions_nn - val_data['y'].to_numpy().reshape(-1, 1)) ** 2)
+
+print(f"Linear model 1 MSE: {mse_1:.3f}")
+print(f"Linear model 2 MSE: {mse_2:.3f}")
+print(f"Neural network MSE: {mse_nn:.3f}")
+ 
+```
+
+Linear model 2 demonstrated a notably lower mean squared error compared to both linear model 1 and the neural network. As a result, linear model 2 emerges as the preferred choice for predictive tasks. This preference stems from its capability to effectively capture the underlying nonlinear relationship between the variables $X_1$, $X_2$ and $u$, a feature that linear model 1 and the neural network lack. Despite the neural network's higher parameter count, linear model 2 offers superior flexibility by accommodating nonlinearities and interaction terms. This heightened adaptability enhances its capacity to capture the intricacies of the data, thereby bolstering its predictive performance.
+
+## **k)** {.unnumbered}
+
+For each fitted model (both linear models and the neural network), describe the effect on the expected value of the response variable caused by an increase of one unit in the covariate $x_1$?
+
+Model 1: \begin{align*}
+&\frac{\partial E[Y|x_1, x_2]}{\partial x_1} = \beta_1
+\end{align*}
+
+An increase in $x_1$ causes an increase in $E[Y|x_1, x_2]$ of size $1.20$.
+
+Model 2: \begin{align*}
+&\frac{\partial E[Y|x_1, x_2]}{\partial x_1} = \beta_1 + 2 \beta_3 x_1 + \beta_5 x_2
+\end{align*}
+
+An increase in $x_1$ causes an increase in $E[Y|x_1, x_2]$ of size $1.19 + 1.40*x_1 - 2.09*x_2$. This suggests more flexibility because we include the information of the covariates .
+
+Neural Net:
+
+```{=tex}
+\begin{align*}
+&\frac{\partial E[Y|x_1, x_2]}{\partial x_1} = w_1 \phi'(w_1 x_1 + w_2 x_2 + b_1) + w_3 \phi'(w_3 x_1 + w_4 x_2 + b_2)
+\end{align*}
+```
+An increase in $x_1$ causes an increase in $E[Y|x_1, x_2]$ of size $w_1 \phi'(w_1 x_1 + w_2 x_2 + b_1) + w_3 \phi'(w_3 x_1 + w_4 x_2 + b_2)$.
+
+Although we cannot easily measure the increase in $E[Y|x_1, x_2]$ after 1 unit increase into the neural network , we can visualize it with a graph that also explains the partial dependence of the response variable on the feature $x_1$ alongside the linear models:
+
+```{python}
+
+x1_values = np.linspace(val_data['x1'].min(), val_data['x1'].max(), 100)
+
+# Fixing the covariate x2 to the median
+
+median_x2 = val_data['x2'].median()
+
+predictions_1_x1 = regression_1.predict(pd.DataFrame({'x1': x1_values, 'x2': median_x2}))
+
+predictions_2_x1 = regression_2.predict(pd.DataFrame({'x1': x1_values, 'x2': median_x2}))
+
+predictions_nn_x1 = nn.operate(np.column_stack((x1_values, np.full_like(x1_values, median_x2))), best_theta)
+
+df_plot = pd.DataFrame({
+    'x1': x1_values,
+    'Linear Regression Model 1': np.squeeze(predictions_1_x1),
+    'Linear Regression Model 2': np.squeeze(predictions_2_x1),
+    'Neural Network': np.squeeze(predictions_nn_x1)
+})
+
+
+df_plot = df_plot.melt(id_vars='x1', var_name='Model', value_name='Predicted Value')
+
+sns.set(style="whitegrid")
+plt.figure(figsize=(10, 6))
+sns.lineplot(data=df_plot, x='x1', y='Predicted Value', hue='Model')
+plt.xlabel('$x_1$')
+plt.ylabel('Expected Value of Response Variable')
+plt.title('Partial Dependence of Response Variable on $x_1$')
+plt.legend(loc='best')
+plt.show()
+
+
+
+```
+
+We can notice that for $x_1 < 1$ , the neural network predicts higher values than the linear models. For each unit increase where \$ -3 \< x_1 \< 0\$ we have a total of 2 unit decay in $\hat{y}$ and a 3 unit decay when it reaches $x_1 = 1$.
+
+Meanwhile, for $x_1 > 1$ we see a fastest decay, so for each unit increase into $x_1$ the predicted value tend to vary in the interval $15 < \hat{y} < 23$.
+
+Those conclusions holds because we saw in g) through the 3d plot that the neural network tends to overestimate extreme values for $x_1$, althoug it is more apparent when we deal with regions where $x_1 \cdot x_2 \leq 0$.
+
+It is noteworthy that the predicted values range is higher in the neural network compared to the linear models.
+
+## **l)** {.unnumbered}
+
+Again, for each of the 3 models under study, calculate the percentage of times that the 95% confidence interval (for a new observation!) captured the value of $y_i$. Consider only the data from the test set. In the case of the neural network, assume that approximately $\frac{y_i - \hat{y}}{\hat{\sigma}} \sim N(0, 1)$, where $\hat{\sigma}$ represents the square root of the mean squared error of the network. Comment on the results. Hint: for linear models, use the `predict(mod, interval="prediction")` function.
+
+```{python}
+z = st.norm.ppf(0.975)
+
+
+models = [
+    (regression_1, mse_1, 'Regression 1'),
+    (regression_2, mse_2, 'Regression 2'),
+    (nn.operate, mse_nn, 'Neural Network')
+]
+
+normalized_predictions = {}
+
+# Calculating and printing capture rates for each model
+
+for model, mse, model_name in models:
+    if model == nn.operate:
+        predictions = (nn.operate(val_data[['x1', 'x2']].to_numpy(), best_theta) - val_data['y'].values.reshape(-1, 1)) / np.sqrt(mse)
+    else:
+        predictions = (model.predict(val_data[['x1', 'x2']]) - val_data['y']) / np.sqrt(mse)
+    capture_rate = calculate_capture_rate(predictions, z)
+    print(f"Capture rate for {model_name}: {capture_rate:.2f}%")
+
+    normalized_predictions[model_name] = predictions
+
+```
+
+These outcomes closely resemble those in j), wherein models with lower Mean Squared Error (MSE) also encompassed a greater portion of the data within the confidence interval. However, this difference is marginal, with the linear model 2 slightly outperforming linear model 1 and the neural network, in that order.
+
+## **m)** {.unnumbered}
+
+For **linear model 1**, create a scatter plot between $x_1$ and $x_2$, where each point corresponds to an observation from the test set. Identify the points that were contained within their respective confidence intervals using the color green. For the remaining points, use red. Comment on the result.
+
+```{python}
+
+predictions_model_1 = normalized_predictions['Regression 1']
+
+val_data['capture_status'] = np.where((predictions_model_1 >= -z) & (predictions_model_1 <= z), 'Captured', 'Missed')
+
+color_mapping = {'Captured': 'green', 'Missed': 'red'}
+
+
+fig = px.scatter(val_data, x='x1', y='x2', color='capture_status', color_discrete_map=color_mapping,
+                 title='Captured and Missed Points',
+                 labels={'x1': 'X1', 'x2': 'X2', 'capture_status': 'Capture Status'})
+
+fig.update_traces(marker=dict(size=3, opacity=0.6))
+
+
+fig.update_layout(
+    xaxis=dict(title='X<sub>1</sub>'),
+    yaxis=dict(title='X<sub>2</sub>'),
+    legend=dict(title='Capture Status', orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    plot_bgcolor='white',
+    showlegend=True,
+    width=800,
+    height=500
+)
+
+fig.show()
+ 
+```
+
+The data lying outside the confidence interval predominantly cluster in the area where the function under estimation achieves its peak values. This phenomenon arises due to the incapacity of linear model 1 to capture the nonlinear correlation between $u$, $X_1$, and $X_2$. Despite this limitation, model 1 remains apt for predicting values proximate to the mean.
+
+## **Extra)** {.unnumbered}
+
+Implement the L2 regularization to find a better MSE for the validation set and comment the results.
+
+Knowing that we already found the best parameters that minimize the cost function in the **validation set** in e) , we can establish some values for lambda and start from the best theta previously found:
+
+```{python}
+best_lambda = None
+best_mse = float('inf')
+lambda_values = [0.00001,0.0001, 0.001, 0.01, 0.1, 1, 10]
+
+for lambda_val in lambda_values:
+
+    nn.operate(x_train, best_theta, y_train, operation='backpropagation_L2', lambda_val=lambda_val)
+
+    y_val_hat_nn = nn.operate(val_data[['x1', 'x2']].to_numpy(), best_theta, operation='forward_L2', lambda_val=lambda_val )
+    y_val =  val_data['y'].to_numpy().reshape(-1, 1)
+    mse_val = np.mean((y_val_hat_nn - y_val) ** 2)
+
+    if mse_val < best_mse:
+        best_mse = mse_val
+        best_lambda = lambda_val
+
+print("Best lambda:", best_lambda)
+print(f"Best MSE in the validation set: {best_mse:.2f}")
+```
+
+Unfortunately the MSE didn't got a reduction, in fact, it slightly increased suggesting that the regularization might need fine-tuning.
