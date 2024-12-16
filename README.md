@@ -1,8 +1,8 @@
-# Redes-Neurais
-Repositório que contempla os tópicos discutidos no decorrer das aulas da disciplina Tópicos em Estatística - Redes Neurais 
+### Neural-Networks  
+Repository covering topics discussed throughout the *Topics in Statistics - Neural Networks* course.
 
-- 'neural_net_from_scratch' detalham a implementação de uma rede neural sem o uso de bibliotecas que facilitariam o processo.
+- **'neural_net_from_scratch'**: Details the implementation of a neural network without using libraries that would simplify the process.
 
-- 'Regularization' discorre sobre a implementação do 'Dropout' e acerca do Keras que a auxilia na obtenção de estruturas de redes neurais complexas e parsimoniosas com o uso da otimização bayesiana auxiliada por um processo gaussiano.
+- **'Regularization'**: Discusses the implementation of *Dropout* and the use of Keras to aid in constructing complex and parsimonious neural network structures through Bayesian optimization assisted by a Gaussian process.
 
-- 'Optimizers' não utilizam bibliotecas para performar os métodos de otimização, sendo também implementados desde o prinicípio.
+- **'Optimizers'**: Methods of optimization are implemented entirely from scratch without the use of libraries.
